@@ -68,7 +68,7 @@ DOCKER_IMAGE_SUFFIX :=
 CAIMAKE_HOME ?= $(HOME)/.caimake
 PATH := $(CAIMAKE_HOME):$(PATH)
 # auto update caimake binary
-CAIMAKE_AUTO_UPDATE ?= false
+CAIMAKE_AUTO_UPDATE ?= true
 # check if caimake.sh exists
 CAIMAKE_OFFLINE := $(shell if [ -e ".caimake/caimake.sh" ]; then echo "true"; else echo "false"; fi;)
 ifeq ($(CAIMAKE_OFFLINE),true)
@@ -83,7 +83,7 @@ endif
 -include Makefile.expansion
 
 # check if pre-build defined in Makefile.expansion
-PRE_BUILD := $(shell $(MAKE) -n pre-build 2> /dev/null)
+PRE_BUILD := $(shell $(MAKE) -n pre-build -f Makefile.expansion 2>/dev/null)
 ifdef PRE_BUILD
 PRE_BUILD := pre-build
 endif
