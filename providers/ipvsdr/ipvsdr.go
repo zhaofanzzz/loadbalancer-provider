@@ -30,9 +30,7 @@ import (
 	"github.com/caicloud/loadbalancer-provider/core/pkg/sysctl"
 	core "github.com/caicloud/loadbalancer-provider/core/provider"
 	"github.com/caicloud/loadbalancer-provider/pkg/version"
-
 	log "github.com/zoumo/logdog"
-
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/flowcontrol"
 	utildbus "k8s.io/kubernetes/pkg/util/dbus"
@@ -129,11 +127,14 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 		return nil
 	}
 
+	log.Info("IPVS: OnUpdating")
+
 	tcpcm, err := p.storeLister.ConfigMap.ConfigMaps(lb.Namespace).Get(lb.Status.ProxyStatus.TCPConfigMap)
 	if err != nil {
 		log.Error("can not find tcp configmap for loadbalancer")
 		return err
 	}
+
 	udpcm, err := p.storeLister.ConfigMap.ConfigMaps(lb.Namespace).Get(lb.Status.ProxyStatus.UDPConfigMap)
 	if err != nil {
 		log.Error("can not find udp configmap for loadbalancer")
@@ -143,24 +144,41 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	tcpPorts, udpPorts := core.GetExportedPorts(tcpcm, udpcm)
 
 	// get selected nodes' ip
-	selectedNodes := p.getNodesIP(lb.Spec.Nodes.Names)
-	if len(selectedNodes) == 0 {
+	if len(lb.Spec.Nodes.Names) == 0 {
 		log.Error("no selected nodes")
 		return nil
+	}
+
+	resolvedNodes := p.getNodesIP(lb.Spec.Nodes.Names)
+	if len(resolvedNodes) == 0 {
+		log.Error("Cannot get any valid node IP")
+		return nil
+	}
+
+	// All the resolvedNodes MUST be in the same L2 network
+	// After resolving, we will figure out which nodes can not be reached
+	unresolvedNeighbors := getNeighbors(p.nodeInfo.IP, resolvedNodes)
+	resolvedNeighbors := p.resolveNeighbors(unresolvedNeighbors)
+	if len(unresolvedNeighbors) > 0 && len(resolvedNeighbors) == 0 {
+		log.Warn("Cannot get any valid neighbors MAC")
+	}
+
+	// rebuild resolvedNodes
+	resolvedNodes = []string{p.nodeInfo.IP}
+	for _, n := range resolvedNeighbors {
+		resolvedNodes = append(resolvedNodes, n.IP)
 	}
 
 	svc := virtualServer{
 		VIP:        lb.Spec.Providers.Ipvsdr.VIP,
 		Scheduler:  string(lb.Spec.Providers.Ipvsdr.Scheduler),
-		RealServer: selectedNodes,
+		RealServer: resolvedNodes,
 	}
-
-	neighbors := p.resolveNeighbors(getNeighbors(p.nodeInfo.IP, selectedNodes))
 
 	err = p.keepalived.UpdateConfig(
 		[]virtualServer{svc},
-		neighbors,
-		getNodePriority(p.nodeInfo.IP, selectedNodes),
+		resolvedNeighbors,
+		getNodePriority(p.nodeInfo.IP, resolvedNodes),
 		*lb.Status.ProvidersStatuses.Ipvsdr.Vrid,
 	)
 	if err != nil {
@@ -168,7 +186,7 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 		return err
 	}
 
-	p.ensureIptablesMark(neighbors, tcpPorts, udpPorts)
+	p.ensureIptablesMark(resolvedNeighbors, tcpPorts, udpPorts)
 
 	// check md5
 	md5, err := checksum(keepalivedCfg)
@@ -260,6 +278,7 @@ func (p *IpvsdrProvider) getNodesIP(names []string) []string {
 		}
 		ip, err := nodeutil.GetNodeHostIP(node, p.nodeIPLabels, p.nodeIPAnnotations)
 		if err != nil {
+			log.Errorf("Error resolve ip of node %v", name)
 			continue
 		}
 		ips = append(ips, ip.String())
@@ -361,6 +380,9 @@ func (p *IpvsdrProvider) resolveNeighbors(neighbors []string) []ipmac {
 		}
 		resolvedNeighbors = append(resolvedNeighbors, ipmac{IP: neighbor, MAC: hwAddr})
 	}
+
+	log.Debugf("resolved neighbors macs: %v", resolvedNeighbors)
+
 	return resolvedNeighbors
 }
 

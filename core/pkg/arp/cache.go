@@ -19,6 +19,7 @@ package arp
 import (
 	"fmt"
 	"net"
+	"time"
 
 	arpClient "github.com/mdlayher/arp"
 )
@@ -65,6 +66,10 @@ func Resolve(iface, ip string) (net.HardwareAddr, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer client.Close()
+
+	// add timeout to avoid infinite waiting
+	client.SetDeadline(time.Now().Add(2 * time.Second))
 
 	return client.Resolve(ipAddr)
 }

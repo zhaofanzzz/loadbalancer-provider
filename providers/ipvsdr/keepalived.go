@@ -71,6 +71,7 @@ func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priori
 	}
 	defer w.Close()
 
+	log.Infof("Updating keealived config")
 	// save vips for release when shutting down
 	k.vips = getVIPs(vss)
 
