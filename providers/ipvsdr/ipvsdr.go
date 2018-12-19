@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
@@ -395,20 +394,31 @@ func (p *IpvsdrProvider) prependIptablesMark(protocol string, mark int, mac stri
 }
 
 func (p *IpvsdrProvider) setIptablesMark(position iptables.RulePosition, protocol string, mark int, mac string, ports []string) (bool, error) {
+	if len(ports) == 0 {
+		return p.ipt.EnsureRule(position, tableMangle, iptablesChain, p.buildIptablesArgs(protocol, mark, mac, "")...)
+	}
+	// iptables: too many ports specified
+	// multiport accept max ports number may be 15
+	for _, port := range ports {
+		_, err := p.ipt.EnsureRule(position, tableMangle, iptablesChain, p.buildIptablesArgs(protocol, mark, mac, port)...)
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (p *IpvsdrProvider) buildIptablesArgs(protocol string, mark int, mac string, port string) []string {
 	args := make([]string, 0)
 	args = append(args, "-i", p.nodeInfo.Name, "-d", p.vip, "-p", protocol)
-
-	if len(ports) > 0 {
-		args = append(args, "-m", "multiport", "--dports", strings.Join(ports, ","))
+	if port != "" {
+		args = append(args, "-m", "multiport", "--dports", port)
 	}
-
 	if mac != "" {
 		args = append(args, "-m", "mac", "--mac-source", mac)
 	}
-
 	args = append(args, "-j", "MARK", "--set-xmark", fmt.Sprintf("%s/%s", strconv.Itoa(mark), mask))
-
-	return p.ipt.EnsureRule(position, tableMangle, iptablesChain, args...)
+	return args
 }
 
 func (p *IpvsdrProvider) ensureIptablesMark(neighbors []ipmac, tcpPorts, udpPorts []string) {
@@ -440,13 +450,13 @@ func (p *IpvsdrProvider) ensureIptablesMark(neighbors []ipmac, tcpPorts, udpPort
 	if len(tcpPorts) > 0 {
 		_, err := p.prependIptablesMark("tcp", acceptMark, "", tcpPorts)
 		if err != nil {
-			log.Error("error ensure iptables tcp rule for", log.Fields{"tcpPorts": tcpPorts})
+			log.Error("error ensure iptables tcp rule for", log.Fields{"tcpPorts": tcpPorts, "err": err})
 		}
 	}
 	if len(udpPorts) > 0 {
 		_, err := p.prependIptablesMark("udp", acceptMark, "", udpPorts)
 		if err != nil {
-			log.Error("error ensure iptables udp rule for", log.Fields{"udpPorts": udpPorts})
+			log.Error("error ensure iptables udp rule for", log.Fields{"udpPorts": udpPorts, "err": err})
 		}
 	}
 }
