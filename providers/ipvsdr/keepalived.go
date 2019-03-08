@@ -55,6 +55,7 @@ type virtualServer struct {
 
 type keepalived struct {
 	useUnicast bool
+	nodeIP     net.IP
 	nodeInfo   *corenet.Interface
 	ipt        iptables.Interface
 	cmd        *execd.D
@@ -78,8 +79,8 @@ func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priori
 	conf := make(map[string]interface{})
 	conf["iptablesChain"] = iptablesChain
 	conf["iface"] = k.nodeInfo.Name
-	conf["myIP"] = k.nodeInfo.IP
-	conf["netmask"] = k.nodeInfo.Netmask
+	conf["myIP"] = k.nodeIP.String()
+	conf["netmask"] = 32 // useless
 	conf["vss"] = vss
 	conf["vips"] = k.vips
 	conf["neighbors"] = neighbors

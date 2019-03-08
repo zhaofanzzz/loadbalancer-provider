@@ -23,10 +23,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-// DefaultRetry wait for update end
+// DefaultRetry is the recommended retry for a conflict where multiple clients
+// are making changes to the same resource.
 var DefaultRetry = wait.Backoff{
-	Steps:    9,
-	Duration: 5 * time.Millisecond,
+	Steps:    5,
+	Duration: 10 * time.Millisecond,
 	Factor:   1.0,
 	Jitter:   0.1,
 }

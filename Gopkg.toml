@@ -65,7 +65,12 @@
   name = "github.com/Azure/go-autorest"
   version = "v11.4.0"
 
+[[constraint]]
+  branch = "master"
+  name = "github.com/zoumo/golib"
+
 [prune]
   non-go = true
   go-tests = true
   unused-packages = true
+

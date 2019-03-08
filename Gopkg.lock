@@ -395,6 +395,14 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:58080d9527ceb49f2b37334a6e0cf8ea3b3bde396b7c21c432871c12f13832c2"
+  name = "github.com/zoumo/golib"
+  packages = ["netutil"]
+  pruneopts = "NUT"
+  revision = "7505302a8596c0f3c4359fe5c9d8e55b063ec120"
+
+[[projects]]
+  branch = "master"
   digest = "1:df458e1c235788eba6db878775b18971fb591f95e8332ff8aaf11ae089240e25"
   name = "github.com/zoumo/logdog"
   packages = [
@@ -886,6 +894,7 @@
     "github.com/mdlayher/arp",
     "github.com/moby/moby/pkg/reexec",
     "github.com/stretchr/testify/assert",
+    "github.com/zoumo/golib/netutil",
     "github.com/zoumo/logdog",
     "gopkg.in/urfave/cli.v1",
     "k8s.io/api/core/v1",

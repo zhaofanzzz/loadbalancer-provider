@@ -63,6 +63,7 @@ var (
 
 // IpvsdrProvider ...
 type IpvsdrProvider struct {
+	nodeIP            net.IP
 	nodeInfo          *corenet.Interface
 	reloadRateLimiter flowcontrol.RateLimiter
 	keepalived        *keepalived
@@ -89,6 +90,7 @@ func NewIpvsdrProvider(nodeIP net.IP, lb *lbapi.LoadBalancer, unicast bool, labe
 	iptInterface := iptables.New(execer, dbus, iptables.ProtocolIpv4)
 
 	ipvs := &IpvsdrProvider{
+		nodeIP:            nodeIP,
 		nodeInfo:          nodeInfo,
 		reloadRateLimiter: flowcontrol.NewTokenBucketRateLimiter(10.0, 10),
 		vip:               lb.Spec.Providers.Ipvsdr.VIP,
@@ -100,6 +102,7 @@ func NewIpvsdrProvider(nodeIP net.IP, lb *lbapi.LoadBalancer, unicast bool, labe
 
 	// neighbors := getNodeNeighbors(nodeInfo, clusterNodes)
 	ipvs.keepalived = &keepalived{
+		nodeIP:     nodeIP,
 		nodeInfo:   nodeInfo,
 		useUnicast: unicast,
 		ipt:        iptInterface,
@@ -162,14 +165,14 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 
 	// All the resolvedNodes MUST be in the same L2 network
 	// After resolving, we will figure out which nodes can not be reached
-	unresolvedNeighbors := getNeighbors(p.nodeInfo.IP, resolvedNodes)
+	unresolvedNeighbors := getNeighbors(p.nodeIP.String(), resolvedNodes)
 	resolvedNeighbors := p.resolveNeighbors(unresolvedNeighbors)
 	if len(unresolvedNeighbors) > 0 && len(resolvedNeighbors) == 0 {
 		log.Warn("Cannot get any valid neighbors MAC")
 	}
 
 	// rebuild resolvedNodes
-	resolvedNodes = []string{p.nodeInfo.IP}
+	resolvedNodes = []string{p.nodeIP.String()}
 	for _, n := range resolvedNeighbors {
 		resolvedNodes = append(resolvedNodes, n.IP)
 	}
@@ -183,7 +186,7 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	err = p.keepalived.UpdateConfig(
 		[]virtualServer{svc},
 		resolvedNeighbors,
-		getNodePriority(p.nodeInfo.IP, resolvedNodes),
+		getNodePriority(p.nodeIP.String(), resolvedNodes),
 		*lb.Status.ProvidersStatuses.Ipvsdr.Vrid,
 	)
 	if err != nil {

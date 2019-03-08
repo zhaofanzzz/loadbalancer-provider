@@ -17,125 +17,64 @@ limitations under the License.
 package net
 
 import (
-	"errors"
 	"fmt"
-	"net"
 	"regexp"
-	"strings"
-)
 
-var (
-	invalidIfaces = []string{"lo", "docker0", "flannel.1", "cbr0"}
-	nsSvcLbRegex  = regexp.MustCompile(`(.*)/(.*):(.*)|(.*)/(.*)`)
-	vethRegex     = regexp.MustCompile(`^veth.*`)
-	lvsRegex      = regexp.MustCompile(`NAT`)
+	"github.com/zoumo/golib/netutil"
 )
 
 // Interface represents the local network interface
-type Interface struct {
-	Name    string
-	IP      string
-	Netmask int
-	MAC     net.HardwareAddr
-}
+type Interface = netutil.Interface
 
-// interfaces returns a slice containing the local network interfaces
-// excluding lo, docker0, flannel.1 and veth interfaces.
-func interfaces() []net.Interface {
-	validIfaces := []net.Interface{}
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return validIfaces
+var (
+	invalidIfaces = []string{"docker0", "flannel.1", "cbr0"}
+	vethRegex     = regexp.MustCompile(`^veth.*`)
+)
+
+// filter lo, docker0, flannel.1 and veth interfaces.
+func filter(iface Interface) bool {
+	if iface.IsLoopback() ||
+		vethRegex.MatchString(iface.Name) ||
+		stringInSlice(iface.Name, invalidIfaces) {
+		return true
 	}
-
-	for _, iface := range ifaces {
-		if !vethRegex.MatchString(iface.Name) && !StringInSlice(iface.Name, invalidIfaces) {
-			validIfaces = append(validIfaces, iface)
-		}
-	}
-
-	return validIfaces
+	return false
 }
 
 // InterfaceByLoopback returns the loopback interface
 func InterfaceByLoopback() (*Interface, error) {
-
-	ifaces, err := net.Interfaces()
+	slice, err := netutil.InterfacesByLoopback()
 	if err != nil {
 		return nil, err
 	}
-	for _, iface := range ifaces {
-		if strings.HasPrefix(iface.Name, "lo") {
-			addrs, err := iface.Addrs()
-			if err != nil {
-				continue
-			}
-			for _, a := range addrs {
-				// get loopback
-				if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.IsLoopback() {
-					mask, _ := ipnet.Mask.Size()
-					info := &Interface{
-						Name:    iface.Name,
-						IP:      ipnet.IP.String(),
-						Netmask: mask,
-						MAC:     iface.HardwareAddr,
-					}
-					return info, nil
-				}
-			}
-		}
+
+	one := slice.One()
+	if one == nil {
+		return nil, fmt.Errorf("Can not find loopback interface")
 	}
-	return nil, fmt.Errorf("Can not find loopback interface")
+
+	return one, nil
 }
 
 // InterfaceByIP returns the local network interface that is using the
 // specified IP address.
 func InterfaceByIP(ip string) (*Interface, error) {
-	for _, iface := range interfaces() {
-		niface, err := InterfaceByName(iface.Name)
-		if err == nil && ip == niface.IP {
-			return &niface, nil
-		}
-	}
-	return nil, fmt.Errorf("Can not find net interface for ip:%v", ip)
-}
-
-// InterfaceByName returns the local network interface specified by name.
-func InterfaceByName(name string) (Interface, error) {
-	ret := Interface{
-		Name:    name,
-		IP:      "",
-		Netmask: 32,
-		MAC:     net.HardwareAddr(""),
-	}
-
-	iface, err := net.InterfaceByName(name)
+	slice, err := netutil.InterfacesByIP(ip)
 	if err != nil {
-		return ret, err
+		return nil, err
 	}
 
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return ret, err
-	}
+	slice = slice.Filter(filter)
 
-	for _, a := range addrs {
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				ret.IP = ipnet.IP.String()
-				ones, _ := ipnet.Mask.Size()
-				ret.Netmask = ones
-				ret.MAC = iface.HardwareAddr
-				return ret, nil
-			}
-		}
+	one := slice.One()
+	if one == nil {
+		return nil, fmt.Errorf("Can not find net interface for ip:%v", ip)
 	}
-
-	return ret, errors.New("Found no IPv4 addresses")
+	return one, err
 }
 
 // StringInSlice check whether string a is a member of slice.
-func StringInSlice(a string, slice []string) bool {
+func stringInSlice(a string, slice []string) bool {
 	for _, b := range slice {
 		if b == a {
 			return true
