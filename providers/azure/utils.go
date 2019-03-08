@@ -26,6 +26,7 @@ const (
 
 	azureResourceGroups    = "resourceGroups"
 	azureNetworkInterfaces = "networkInterfaces"
+	azureSecurityGroups    = "networkSecurityGroups"
 	azureVirtualMachines   = "virtualMachines"
 	azureIPConfigurations  = "/ipConfigurations"
 
@@ -34,41 +35,23 @@ const (
 	annotationMachineCloudProvider = "machine.resource.caicloud.io/cloud-provider"
 	annotationVirtualMachineID     = "machine.resource.caicloud.io/virtual-machine-id"
 
+	// the min and max priority get from azure docs
+	minSecurityGroupPriority             int32 = 100
+	maxSecurityGroupPriority             int32 = 4096
+	defaultSecurityGroupPriorityStart    int32 = 1000
+	defaultSecurityGroupPriorityIncrease int32 = 10
+	securityGroupTCPPrefix                     = "cps-lb-tcp-"
+	securityGroupUDPPrefix                     = "cps-lb-udp-"
+
 	azureProviderStatusFormat = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s"}}}}`
+
+	azureFinalizer = "finalizer.azure.loadbalancer.loadbalance.caicloud.io"
 )
 
 type networkInterfaceIDSet map[string]struct{}
+type securityGroupIDSet map[string]struct{}
 
 func getAzureNetworkInterfacesByNodeName(c *client.Client, nodeName string, storeLister *core.StoreLister) ([]string, error) {
-	node, err := storeLister.Node.Get(nodeName)
-	if err != nil {
-		log.Errorf("get node %s falied", nodeName)
-		return nil, err
-	}
-	machineName, ok := node.Annotations[AnnotationKeyNodeMachine]
-	if !ok {
-		log.Errorf("get machineName from node %s falied", nodeName)
-		return nil, fmt.Errorf("get machineName from node %s falied", nodeName)
-	}
-	machine, err := storeLister.Machine.Get(machineName)
-	if err != nil {
-		log.Errorf("get machine %s falied", machineName)
-		return nil, err
-	}
-
-	if machine.Spec.ProviderConfig.Azure == nil {
-		log.Errorf("node %s machine %s has no azure machine config", nodeName, machineName)
-		return nil, fmt.Errorf("machine %s has no azure machine config", machineName)
-	}
-
-	networkInterfaces := make([]string, 0, len(machine.Spec.ProviderConfig.Azure.NetworkInterfaces))
-	for _, networkInterface := range machine.Spec.ProviderConfig.Azure.NetworkInterfaces {
-		networkInterfaces = append(networkInterfaces, networkInterface.ID)
-	}
-	return networkInterfaces, nil
-}
-
-func getAzureNetworkInterfacesByNodeName1(c *client.Client, nodeName string, storeLister *core.StoreLister) ([]string, error) {
 	node, err := storeLister.Node.Get(nodeName)
 	if err != nil {
 		log.Errorf("get node %s falied", nodeName)
@@ -333,36 +316,37 @@ func getGroupAndResourceNameFromID(id, resourceType string) (string, string, err
 func getSpecifyName(id, prefix string) (string, error) {
 	index := strings.Index(id, prefix)
 	if index == -1 {
-		log.Errorf("find name %v failed", prefix)
-		return "", fmt.Errorf("find name %v failed", prefix)
+		log.Errorf("find id %s  prefix %s failed", id, prefix)
+		return "", fmt.Errorf("find prefix %s failed", prefix)
 	}
 	reSlice := strings.Split(id[index:], "/")
 	if len(reSlice) < 2 {
-		log.Errorf("find name %v failed", prefix)
-		return "", fmt.Errorf("find name %v failed", prefix)
+		log.Errorf("find id %s  prefix %s failed", id, prefix)
+		return "", fmt.Errorf("find prefix %s failed", prefix)
 	}
 	return reSlice[1], nil
 }
 
-func diffBackendPools(c *client.Client, azlb *network.LoadBalancer, nodes []string, storeLister *core.StoreLister) ([]string, []string, error) {
+func diffBackendPoolNetworkInterfaecs(c *client.Client, azlb *network.LoadBalancer, nodes []string, storeLister *core.StoreLister) ([]string, []string, networkInterfaceIDSet, error) {
 	// get source data
 	azBackendPoolMap, err := getAzureBackendPoolIP(azlb)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	backEndPoolMap, err := getBackendPoolIPFromNodes(c, nodes, storeLister)
+	cpsLBBackendConfigMap, err := getBackendPoolIPFromNodes(c, nodes, storeLister)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	log.Infof("az backend %v new backend %v\n", azBackendPoolMap, backEndPoolMap)
+	log.Infof("az backend %v new backend %v\n", azBackendPoolMap, cpsLBBackendConfigMap)
 	// get diff data
-	detachNetworkInterfaces := getDiffBetweenNetworkInterfaces(azBackendPoolMap, backEndPoolMap)
-	attachNetworkInterfaces := getDiffBetweenNetworkInterfaces(backEndPoolMap, azBackendPoolMap)
+	detachNetworkInterfaces := getDiffBetweenNetworkInterfaces(azBackendPoolMap, cpsLBBackendConfigMap)
+	attachNetworkInterfaces := getDiffBetweenNetworkInterfaces(cpsLBBackendConfigMap, azBackendPoolMap)
 
-	return detachNetworkInterfaces, attachNetworkInterfaces, nil
+	return detachNetworkInterfaces, attachNetworkInterfaces, cpsLBBackendConfigMap, nil
 }
 
+// getDiffBetweenNetworkInterfaces find the key in one but not in two
 func getDiffBetweenNetworkInterfaces(one, two networkInterfaceIDSet) []string {
 	diff := make([]string, 0, len(one))
 	for id := range one {
@@ -417,4 +401,12 @@ func getIPIDFromIPConfig(id string) (string, error) {
 		return "", fmt.Errorf("find ipConfigurations failed")
 	}
 	return id[:index], nil
+}
+
+func copyMap(m map[string]string) map[string]string {
+	newm := make(map[string]string)
+	for k, v := range m {
+		newm[k] = v
+	}
+	return newm
 }

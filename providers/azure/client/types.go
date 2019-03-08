@@ -21,6 +21,31 @@ type Client struct {
 	LoadBalancer     loadBalancerClient
 	VM               virtualMachineClient
 	NetworkInterface networkInterfaceClient
+	SecurityGroup    securityGroupClient
+}
+
+type securityGroupClient interface {
+	Get(ctx context.Context, resourceGroupName, loadBalancerName, expand string) (network.SecurityGroup, error)
+	CreateOrUpdate(ctx context.Context, resourceGroupName, securityGroupName string, parameters network.SecurityGroup) (network.SecurityGroup, error)
+}
+
+type securityGroupClientWrapper struct {
+	network.SecurityGroupsClient
+}
+
+func (c *securityGroupClientWrapper) CreateOrUpdate(ctx context.Context, resourceGroupName string, securityGroupName string, sg network.SecurityGroup) (network.SecurityGroup, error) {
+	createFuture, err := c.SecurityGroupsClient.CreateOrUpdate(ctx, resourceGroupName, securityGroupName, sg)
+	if err != nil {
+		return network.SecurityGroup{}, err
+	}
+
+	err = createFuture.WaitForCompletion(ctx, c.SecurityGroupsClient.Client)
+	if err != nil {
+		return network.SecurityGroup{}, err
+	}
+
+	sg, err = createFuture.Result(c.SecurityGroupsClient)
+	return sg, err
 }
 
 type loadBalancerClient interface {

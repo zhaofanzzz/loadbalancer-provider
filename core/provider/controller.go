@@ -175,7 +175,9 @@ func (p *GenericProvider) updateLoadBalancer(oldObj, curObj interface{}) {
 	}
 
 	// ignore change of status
-	if reflect.DeepEqual(old.Spec, cur.Spec) {
+	if reflect.DeepEqual(old.Spec, cur.Spec) &&
+		reflect.DeepEqual(old.Finalizers, cur.Finalizers) &&
+		reflect.DeepEqual(old.DeletionTimestamp, cur.DeletionTimestamp) {
 		return
 	}
 

@@ -56,6 +56,9 @@ func NewClientWithConfig(config *Config) (*Client, error) {
 	networkInterfaceClient := network.NewInterfacesClientWithBaseURI(baseURL, config.SubscriptionID)
 	networkInterfaceClient.Authorizer = authorizer
 
+	securityGroupClient := network.NewSecurityGroupsClientWithBaseURI(baseURL, config.SubscriptionID)
+	securityGroupClient.Authorizer = authorizer
+
 	return &Client{
 		LoadBalancer: &loadBalancerClientWrapper{
 			LoadBalancersClient: lbClient,
@@ -67,6 +70,9 @@ func NewClientWithConfig(config *Config) (*Client, error) {
 			InterfacesClient: networkInterfaceClient,
 		},
 		Config: config,
+		SecurityGroup: &securityGroupClientWrapper{
+			SecurityGroupsClient: securityGroupClient,
+		},
 	}, nil
 }
 

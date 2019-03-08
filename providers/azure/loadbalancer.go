@@ -148,7 +148,7 @@ func createAzureLoadBalancer(c *client.Client, lb *lbapi.LoadBalancer) (*network
 		log.Errorf("create lb failed error : %v", err)
 		return nil, err
 	}
-	log.Infof("create load balancer %s success", to.String(azlb.Name))
+	log.Infof("create load balancer %s successfully", to.String(azlb.Name))
 	return &azlb, nil
 }
 
@@ -246,7 +246,323 @@ func ensureSyncRulesAndBackendPools(c *client.Client, storeLister *core.StoreLis
 	if err != nil {
 		return err
 	}
-	return syncBackendPools(c, storeLister, azlb, lb)
+	log.Info("sync rules successfully...")
+	detachNetworks, azlbBackendNetworksMap, err := syncBackendPools(c, storeLister, azlb, lb)
+	if err != nil {
+		return err
+	}
+	log.Infof("sync backendPools successfully...")
+	// if use public address , need sync security rules to the security group
+	if usePublicAddress(lb) {
+		// add default security group rules
+		if tcpMap == nil {
+			tcpMap = make(map[string]string)
+		}
+		tcpMap["80"] = ""
+		tcpMap["443"] = ""
+		err = syncSecurityGroupRules(c, tcpMap, udpMap, detachNetworks, azlbBackendNetworksMap)
+		log.Infof("sync security group rules result %v", err)
+	}
+	return err
+}
+
+func syncSecurityGroupRules(c *client.Client, tcp, udp map[string]string, detachs []string, networks networkInterfaceIDSet) error {
+	// get the sg to be delete and sync
+	deleteSg, syncSg, err := getSuitableSecurityGroup(c, detachs, networks)
+	if err != nil {
+		return err
+	}
+	// delete the useless rules from security group
+	err = deleteUselessSecurityRules(c, deleteSg)
+	if err != nil {
+		return err
+	}
+
+	return ensureSyncRulesToSecurityGroups(c, syncSg, tcp, udp)
+}
+
+// ensureSyncRulesToSecurityGroups sync security group rules
+func ensureSyncRulesToSecurityGroups(c *client.Client, sgIDs securityGroupIDSet, tcp, udp map[string]string) error {
+	for sgID := range sgIDs {
+		log.Infof("update sg id %s", sgID)
+		groupName, name, err := getGroupAndResourceNameFromID(sgID, azureSecurityGroups)
+		if err != nil {
+			return err
+		}
+		sg, err := c.SecurityGroup.Get(context.TODO(), groupName, name, "")
+		if err != nil {
+			return err
+		}
+		newRules := make([]network.SecurityRule, 0, len(*sg.SecurityRules)+len(tcp)+len(udp))
+		var change bool
+		tcpClone := copyMap(tcp)
+		udpClone := copyMap(udp)
+
+		// priority value is unique in the sg rules
+		// store used and be deleted priority value
+		sgUsedPriorityMap := make(map[int32]struct{})
+		sgDeletePriorityMap := make(map[int32]struct{})
+
+		if sg.SecurityRules != nil && len(*sg.SecurityRules) != 0 {
+			for i := range *sg.SecurityRules {
+				rule := (*sg.SecurityRules)[i]
+				modify, remain, err := ensureSyncWithDefaultSetting(&rule, tcpClone, udpClone)
+				if err != nil {
+					return err
+				}
+				if remain {
+					newRules = append(newRules, rule)
+					sgUsedPriorityMap[to.Int32(rule.Priority)] = struct{}{}
+				} else {
+					sgDeletePriorityMap[to.Int32(rule.Priority)] = struct{}{}
+				}
+				if modify {
+					change = true
+				}
+			}
+		}
+		if len(udpClone) != 0 || len(tcpClone) != 0 {
+			change = true
+		}
+
+		for port := range udpClone {
+			priority, err := getValidPriority(sgUsedPriorityMap, sgDeletePriorityMap)
+			if err != nil {
+				return err
+			}
+			sgUsedPriorityMap[priority] = struct{}{}
+			rule := getDefaultSecurityGroupRule(securityGroupUDPPrefix, port, to.Int32Ptr(priority))
+			newRules = append(newRules, *rule)
+		}
+
+		for port := range tcpClone {
+			priority, err := getValidPriority(sgUsedPriorityMap, sgDeletePriorityMap)
+			if err != nil {
+				return err
+			}
+			sgUsedPriorityMap[priority] = struct{}{}
+			rule := getDefaultSecurityGroupRule(securityGroupTCPPrefix, port, to.Int32Ptr(priority))
+			newRules = append(newRules, *rule)
+		}
+		if change {
+			sg.SecurityRules = &newRules
+			_, err = c.SecurityGroup.CreateOrUpdate(context.TODO(), groupName, name, sg)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// TODO need more priority? now max number of valid  priority value is 310
+func getValidPriority(used, del map[int32]struct{}) (int32, error) {
+	// use the be deleted priority value first
+	for pri := range del {
+		delete(del, pri)
+		return pri, nil
+	}
+	// remain the high priority value to user for custom config
+	priority := defaultSecurityGroupPriorityStart
+	for {
+		if priority > maxSecurityGroupPriority {
+			return 0, fmt.Errorf("get valid priority failed, suggest to delete useless rule from cps")
+		}
+		_, ok := used[priority]
+		if !ok {
+			break
+		}
+		// remain interval to add new priority without modify current rules
+		priority += defaultSecurityGroupPriorityIncrease
+	}
+	return priority, nil
+}
+
+// ensureSyncWithDefaultSetting reset the rules which automatically generate by cps if has differents
+// between them and the default rules
+func ensureSyncWithDefaultSetting(rule *network.SecurityRule, tcp, udp map[string]string) (bool, bool, error) {
+	var ruleMap map[string]string
+	var rulePrefix string
+	// the port range is not the unique value during the security group rules
+	// so we can't tell the rules which automatically generate by cps from all the sg rules by port range
+	// now the criterion is using the specify prefix
+	if strings.HasPrefix(to.String(rule.Name), securityGroupTCPPrefix) {
+		ruleMap = tcp
+		rulePrefix = securityGroupTCPPrefix
+	} else if strings.HasPrefix(to.String(rule.Name), securityGroupUDPPrefix) {
+		ruleMap = udp
+		rulePrefix = securityGroupUDPPrefix
+	} else {
+		// remain others rules
+		return false, true, nil
+	}
+
+	_, ok := ruleMap[to.String(rule.DestinationPortRange)]
+	// if the rule don't exist in the rule map return directly
+	if !ok {
+		return true, false, nil
+	}
+	change := ensureSettingDefaultRules(rule, ruleMap, rulePrefix)
+	// delete the exist port range, the rest of port will be added to sg rules
+	delete(ruleMap, to.String(rule.DestinationPortRange))
+	return change, true, nil
+}
+
+// ensureSettingDefaultRules make sure the setting is default
+func ensureSettingDefaultRules(rule *network.SecurityRule, tcp map[string]string, prefix string) bool {
+	defaultRule := getDefaultSecurityGroupRule(prefix, to.String(rule.DestinationPortRange), rule.Priority)
+	ruleBrief := getSecurityGroupRuleBrief(rule)
+	if reflect.DeepEqual(defaultRule, ruleBrief) {
+		return false
+	}
+	copySecurityGroup(rule, defaultRule)
+	return true
+}
+
+func copySecurityGroup(dst, src *network.SecurityRule) {
+	dst.Name = src.Name
+	dst.Description = src.Description
+	dst.Protocol = src.Protocol
+	dst.SourcePortRange = src.SourcePortRange
+	dst.DestinationPortRange = src.DestinationPortRange
+	dst.SourceAddressPrefix = src.SourceAddressPrefix
+	dst.DestinationAddressPrefix = src.DestinationAddressPrefix
+	dst.Access = src.Access
+	dst.Priority = src.Priority
+	dst.Direction = src.Direction
+}
+
+func getSecurityGroupRuleBrief(rule *network.SecurityRule) *network.SecurityRule {
+	return &network.SecurityRule{
+		Name: rule.Name,
+		SecurityRulePropertiesFormat: &network.SecurityRulePropertiesFormat{
+			Description:              rule.Description,
+			Protocol:                 rule.Protocol,
+			SourcePortRange:          rule.SourcePortRange,
+			DestinationPortRange:     rule.DestinationPortRange,
+			SourceAddressPrefix:      rule.SourceAddressPrefix,
+			DestinationAddressPrefix: rule.DestinationAddressPrefix,
+			Access:    rule.Access,
+			Priority:  rule.Priority,
+			Direction: rule.Direction,
+		},
+	}
+}
+
+func getDefaultSecurityGroupRule(prefix, port string, priority *int32) *network.SecurityRule {
+	protocl := network.SecurityRuleProtocolTCP
+	if prefix == securityGroupUDPPrefix {
+		protocl = network.SecurityRuleProtocolUDP
+	}
+	return &network.SecurityRule{
+		Name: to.StringPtr(prefix + port),
+		SecurityRulePropertiesFormat: &network.SecurityRulePropertiesFormat{
+			Description:              to.StringPtr("use for cps"),
+			Protocol:                 protocl,
+			SourcePortRange:          to.StringPtr("*"),
+			DestinationPortRange:     to.StringPtr(port),
+			SourceAddressPrefix:      to.StringPtr("*"),
+			DestinationAddressPrefix: to.StringPtr("*"),
+			Access:    network.SecurityRuleAccessAllow,
+			Priority:  priority,
+			Direction: network.SecurityRuleDirectionInbound,
+		},
+	}
+}
+
+// deleteUselessSecurityRules delete the useless rules from security group
+func deleteUselessSecurityRules(c *client.Client, sgIDs securityGroupIDSet) error {
+	for sgID := range sgIDs {
+		groupName, name, err := getGroupAndResourceNameFromID(sgID, azureSecurityGroups)
+		if err != nil {
+			return err
+		}
+		sg, err := c.SecurityGroup.Get(context.TODO(), groupName, name, "")
+		if err != nil {
+			return err
+		}
+		if sg.SecurityRules != nil && len(*sg.SecurityRules) != 0 {
+			newRules := make([]network.SecurityRule, 0, len(*sg.SecurityRules))
+			var change bool
+			for i := range *sg.SecurityRules {
+				rule := (*sg.SecurityRules)[i]
+				// the port range is not the unique value during the security group rules
+				// so we can't tell the rules which automatically generate by cps from all the sg rules by port range
+				// now the criterion is using the specify prefix
+				if strings.HasPrefix(to.String(rule.Name), securityGroupTCPPrefix) ||
+					strings.HasPrefix(to.String(rule.Name), securityGroupUDPPrefix) {
+					change = true
+				} else {
+					newRules = append(newRules, rule)
+				}
+			}
+			if change {
+				sg.SecurityRules = &newRules
+				_, err = c.SecurityGroup.CreateOrUpdate(context.TODO(), groupName, name, sg)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// getSuitableSecurityGroup get need to be deleted and sync security group
+func getSuitableSecurityGroup(c *client.Client, detachs []string, networks networkInterfaceIDSet) (securityGroupIDSet, securityGroupIDSet, error) {
+	deleteSg := make(securityGroupIDSet)
+	syncSg := make(securityGroupIDSet)
+	for _, network := range detachs {
+		sg, err := getSecurityGroupIDFromNetWork(c, network)
+		if err != nil {
+			return nil, nil, err
+		}
+		deleteSg[sg] = struct{}{}
+	}
+
+	for network := range networks {
+		sg, err := getSecurityGroupIDFromNetWork(c, network)
+		if err != nil {
+			return nil, nil, err
+		}
+		syncSg[sg] = struct{}{}
+	}
+
+	// the networkInterfaces which need to be deleted and sync may depend on the same security group
+	// delete security group from deletesg which exist in syncsg
+	for k := range syncSg {
+		_, ok := deleteSg[k]
+		if ok {
+			delete(deleteSg, k)
+		}
+	}
+	return deleteSg, syncSg, nil
+}
+
+func getSecurityGroupIDFromNetWork(c *client.Client, network string) (string, error) {
+	groupName, name, err := getGroupAndResourceNameFromID(network, azureNetworkInterfaces)
+	if err != nil {
+		return "", err
+	}
+	net, err := c.NetworkInterface.Get(context.TODO(), groupName, name, "")
+	if err != nil {
+		return "", err
+	}
+	if net.NetworkSecurityGroup == nil {
+		return "", fmt.Errorf("network %s has no network security group", network)
+	}
+	return to.String(net.NetworkSecurityGroup.ID), nil
+}
+
+// usePublicAddress tell lb if use public address
+func usePublicAddress(lb *lbapi.LoadBalancer) bool {
+	if lb.Spec.Providers.Azure == nil {
+		return false
+	}
+	if lb.Spec.Providers.Azure.IPAddressProperties.Public != nil {
+		return true
+	}
+	return false
 }
 
 func setProvisioningState(lb *lbapi.LoadBalancer, provisioningState string) {
@@ -271,36 +587,36 @@ func syncRules(c *client.Client, azlb *network.LoadBalancer, tcpMap, udpMap map[
 }
 
 // sync backend pools
-func syncBackendPools(c *client.Client, storeLister *core.StoreLister, azlb *network.LoadBalancer, lb *lbapi.LoadBalancer) error {
+func syncBackendPools(c *client.Client, storeLister *core.StoreLister, azlb *network.LoadBalancer, lb *lbapi.LoadBalancer) ([]string, networkInterfaceIDSet, error) {
 	nodes := lb.Spec.Nodes.Names
 	return syncBackendPoolsWithNodes(c, storeLister, azlb, nodes)
 }
 
 // sync backend pools with spec nodes
-func syncBackendPoolsWithNodes(c *client.Client, storeLister *core.StoreLister, azlb *network.LoadBalancer, nodes []string) error {
+func syncBackendPoolsWithNodes(c *client.Client, storeLister *core.StoreLister, azlb *network.LoadBalancer, nodes []string) ([]string, networkInterfaceIDSet, error) {
 	log.Infof("sync backend pools azlb name %s", to.String(azlb.Name))
 	// nodes := lb.Spec.Nodes.Names
-	detachs, attachs, err := diffBackendPools(c, azlb, nodes, storeLister)
+	detachs, attachs, azlbBackendNetworksMap, err := diffBackendPoolNetworkInterfaecs(c, azlb, nodes, storeLister)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if azlb.BackendAddressPools == nil || len(*azlb.BackendAddressPools) == 0 {
-		return fmt.Errorf("backend pools is empty")
+		return nil, nil, fmt.Errorf("backend pools is empty")
 	}
 	poolID := to.String((*(azlb.BackendAddressPools))[0].ID)
 	for _, detach := range detachs {
 		err := detachNetworkInterfacesAndLoadBalancer(c, detach, poolID)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 	for _, attach := range attachs {
 		err := attachNetworkInterfacesAndLoadBalancer(c, attach, poolID)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
-	return nil
+	return detachs, azlbBackendNetworksMap, nil
 }
 
 func detachNetworkInterfacesAndLoadBalancer(c *client.Client, detachID string, poolID string) error {
@@ -429,6 +745,10 @@ func recoverDefaultAzureLoadBalancer(c *client.Client, groupName, lbName string)
 		}
 	}()
 	azlb, err := c.LoadBalancer.Get(context.TODO(), groupName, lbName, "")
+	// if the lb is deleted by others, dont't return err
+	if client.IsNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -445,7 +765,7 @@ func recoverDefaultAzureLoadBalancer(c *client.Client, groupName, lbName string)
 	pools := azlb.BackendAddressPools
 
 	// update azlb
-	log.Infof("start recover default azure load lb")
+	log.Infof("start recover default azure loadbalancer lb")
 	_, err = c.LoadBalancer.CreateOrUpdate(context.TODO(), groupName, lbName, azlb)
 	if err != nil {
 		return err

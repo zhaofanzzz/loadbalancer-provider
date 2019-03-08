@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-01-01/network"
 	"github.com/Azure/go-autorest/autorest"
@@ -11,6 +13,7 @@ import (
 	log "github.com/zoumo/logdog"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/caicloud/clientset/kubernetes"
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
@@ -33,6 +36,9 @@ type AzureProvider struct {
 	// load balancer rules cache
 	tcpRuleMap map[string]string
 	udpRuleMap map[string]string
+
+	// cleanAzure
+	cleanAzure bool
 }
 
 // New creates a new azure LoadBalancer Provider.
@@ -62,7 +68,17 @@ func (l *AzureProvider) setCacheReserveStatus(reserve *bool) {
 	if l.oldAzureProvider == nil {
 		l.oldAzureProvider = &lbapi.AzureProvider{}
 	}
+	log.Infof("set reserve status %v .", to.Bool(reserve))
 	l.oldAzureProvider.ReserveAzure = reserve
+}
+
+func hasAzureFinalizer(lb *lbapi.LoadBalancer) bool {
+	for _, v := range lb.Finalizers {
+		if v == azureFinalizer {
+			return true
+		}
+	}
+	return false
 }
 
 // OnUpdate update loadbalancer
@@ -70,8 +86,13 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 
 	log.Infof("OnUpdate......")
 	if lb.Spec.Providers.Azure == nil {
-		return l.cleanupAzureLB()
+		return l.cleanupAzureLB(nil, false)
 	}
+
+	if lb.DeletionTimestamp != nil {
+		return l.cleanupAzureLB(lb, true)
+	}
+
 	// ignore change of azure's name groupName and reserve status
 	l.setCacheAzureLoadbalancer(lb.Spec.Providers.Azure)
 	l.setCacheReserveStatus(lb.Spec.Providers.Azure.ReserveAzure)
@@ -91,7 +112,7 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	// check lb exist in cluster
 	_, err = l.storeLister.LoadBalancer.LoadBalancers(lb.Namespace).Get(lb.Name)
 	if errors.IsNotFound(err) {
-		return l.cleanupAzureLB()
+		return l.cleanupAzureLB(lb, true)
 	}
 	if err != nil {
 		log.Errorf("get lb falied %v", err)
@@ -128,7 +149,7 @@ func (l *AzureProvider) Stop() error {
 	log.Infof("end provider azure...")
 	_, err := l.storeLister.LoadBalancer.LoadBalancers(l.loadBalancerNamespace).Get(l.loadBalancerName)
 	if errors.IsNotFound(err) {
-		return l.cleanupAzureLB()
+		return l.cleanupAzureLB(nil, true)
 	}
 	return nil
 }
@@ -192,6 +213,7 @@ func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]s
 		return nil, err
 	}
 
+	// make sure default config is correct
 	azlb, err = ensureSyncDefaultAzureLBConfig(c, azlb, lb)
 
 	if err != nil {
@@ -274,6 +296,55 @@ func (l *AzureProvider) pathLoadBalancerName(lb *lbapi.LoadBalancer, name string
 	return nil
 }
 
+func (l *AzureProvider) getFinalizersPatch(lb *lbapi.LoadBalancer) string {
+	if lb == nil {
+		return ""
+	}
+	remainFinalizes := make([]string, 0, len(lb.Finalizers))
+	for i := range lb.Finalizers {
+		if lb.Finalizers[i] != azureFinalizer {
+			remainFinalizes = append(remainFinalizes, fmt.Sprintf("%q", lb.Finalizers[i]))
+		}
+	}
+	if len(remainFinalizes) == len(lb.Finalizers) {
+		return ""
+	}
+	return fmt.Sprintf(`"metadata":{"finalizers":[%s]}`, strings.Join(remainFinalizes, ","))
+}
+
+func (l *AzureProvider) getNilAzureStatus() string {
+	return `"status":{"ProvidersStatuses":{"azure":{}}}`
+}
+
+func (l *AzureProvider) patachFinalizersAndStatus(lb *lbapi.LoadBalancer, deleteLB bool) error {
+	patchs := make([]string, 0, 2)
+	finalizers := l.getFinalizersPatch(lb)
+	if len(finalizers) != 0 {
+		patchs = append(patchs, finalizers)
+	}
+	if !deleteLB {
+		patchs = append(patchs, l.getNilAzureStatus())
+	}
+
+	if len(patchs) == 0 {
+		return nil
+	}
+
+	namespace, name := l.loadBalancerNamespace, l.loadBalancerName
+	if lb != nil {
+		namespace, name = lb.Namespace, lb.Name
+	}
+
+	patchJSON := strings.Join(patchs, ",")
+	patchJSON = fmt.Sprintf("{%s}", patchJSON)
+	_, err := l.clientset.LoadbalanceV1alpha2().LoadBalancers(namespace).Patch(name, types.MergePatchType, []byte(patchJSON))
+	if err != nil {
+		log.Errorf("patch lb finalizers %s failed %v patch info %s", name, err, patchJSON)
+		return err
+	}
+	return nil
+}
+
 // patch load balancer azure status
 func (l *AzureProvider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, phase lbapi.AzureProviderPhase, result error) (*lbapi.LoadBalancer, error) {
 	var reason, message string
@@ -296,20 +367,29 @@ func (l *AzureProvider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, pha
 	}
 
 	var provisioningState string
-	if lb.Status.ProvidersStatuses.Azure != nil {
+	if lb != nil && lb.Status.ProvidersStatuses.Azure != nil {
 		provisioningState = lb.Status.ProvidersStatuses.Azure.ProvisioningState
 	}
 	patch := fmt.Sprintf(azureProviderStatusFormat, phase, reason, message, provisioningState)
-	lb, err := l.clientset.LoadbalanceV1alpha2().LoadBalancers(lb.Namespace).Patch(lb.Name, types.MergePatchType, []byte(patch))
+	namespace, name := l.loadBalancerNamespace, l.loadBalancerName
+	if lb != nil {
+		namespace, name = lb.Namespace, lb.Name
+	}
+	lb, err := l.clientset.LoadbalanceV1alpha2().LoadBalancers(namespace).Patch(name, types.MergePatchType, []byte(patch))
 	if err != nil {
-		log.Errorf("patch lb %s failed %v", lb.Name, err)
+		log.Errorf("patch lb %s failed %v", name, err)
 		return nil, err
 	}
 	return lb, nil
 }
 
 // clean up azure lb info and make oldAzureProvider nil
-func (l *AzureProvider) cleanupAzureLB() error {
+func (l *AzureProvider) cleanupAzureLB(lb *lbapi.LoadBalancer, deleteLB bool) error {
+	if l.cleanAzure {
+		log.Info("azure loadbalancer is already clean...")
+		return nil
+	}
+	l.cleanAzure = true
 	if l.oldAzureProvider == nil || len(l.oldAzureProvider.Name) == 0 {
 		log.Errorf("old azure info nil")
 		return nil
@@ -326,12 +406,58 @@ func (l *AzureProvider) cleanupAzureLB() error {
 		}
 	}()
 
-	if to.Bool(l.oldAzureProvider.ReserveAzure) {
-		err = recoverDefaultAzureLoadBalancer(c, l.oldAzureProvider.ResourceGroupName, l.oldAzureProvider.Name)
+	err = cleanUpSecurityGroup(c, l.oldAzureProvider.ResourceGroupName, l.oldAzureProvider.Name)
+	if err != nil {
 		return err
+	}
+
+	reserve := to.Bool(l.oldAzureProvider.ReserveAzure)
+	if lb != nil && lb.Spec.Providers.Azure != nil {
+		reserve = to.Bool(lb.Spec.Providers.Azure.ReserveAzure)
+	}
+
+	if reserve {
+		err = wait.Poll(5*time.Second, 60*time.Second, func() (bool, error) {
+			err = recoverDefaultAzureLoadBalancer(c, l.oldAzureProvider.ResourceGroupName, l.oldAzureProvider.Name)
+			if err == nil {
+				return true, nil
+			}
+			return false, nil
+		})
+		if err != nil {
+			l.patchLoadBalancerAzureStatus(lb, lbapi.AzureErrorPhase, err)
+			return err
+		}
+		return l.patachFinalizersAndStatus(lb, deleteLB)
 	}
 	log.Infof("delete azure lb group %s name %s", l.oldAzureProvider.ResourceGroupName, l.oldAzureProvider.Name)
 	err = c.LoadBalancer.Delete(context.TODO(), l.oldAzureProvider.ResourceGroupName, l.oldAzureProvider.Name)
 	log.Infof("delete result %v", err)
-	return err
+	if err != nil {
+		return err
+	}
+	return l.patachFinalizersAndStatus(lb, deleteLB)
+}
+
+func cleanUpSecurityGroup(c *client.Client, groupName, lbName string) error {
+	log.Info("start cleanUpSecurityGroup...")
+	// get azure lb
+	azlb, err := c.LoadBalancer.Get(context.TODO(), groupName, lbName, "")
+	// this can be happened to be deleted by others, ignore it
+	if client.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// get networks
+	azBackendPoolMap, err := getAzureBackendPoolIP(&azlb)
+	detachs := getDiffBetweenNetworkInterfaces(azBackendPoolMap, nil)
+	// get the sg to be delete
+	deleteSg, _, err := getSuitableSecurityGroup(c, detachs, nil)
+	if err != nil {
+		return err
+	}
+	// delete the useless rules from security group
+	return deleteUselessSecurityRules(c, deleteSg)
 }
