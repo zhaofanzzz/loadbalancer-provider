@@ -66,6 +66,7 @@ type IpvsdrProvider struct {
 	nodeInfo          *corenet.Interface
 	reloadRateLimiter flowcontrol.RateLimiter
 	keepalived        *keepalived
+	ipvsCacheChecker  *ipvsCacheCleaner
 	storeLister       core.StoreLister
 	sysctlDefault     map[string]string
 	ipt               iptables.Interface
@@ -102,6 +103,11 @@ func NewIpvsdrProvider(nodeIP net.IP, lb *lbapi.LoadBalancer, unicast bool, labe
 		nodeInfo:   nodeInfo,
 		useUnicast: unicast,
 		ipt:        iptInterface,
+	}
+
+	ipvs.ipvsCacheChecker = &ipvsCacheCleaner{
+		vip:    lb.Spec.Providers.Ipvsdr.VIP,
+		stopCh: make(chan struct{}),
 	}
 
 	err = ipvs.keepalived.loadTemplate()
@@ -212,6 +218,7 @@ func (p *IpvsdrProvider) Start() {
 	p.setLoopbackVIP()
 	p.ensureChain()
 	p.keepalived.Start()
+	p.ipvsCacheChecker.start()
 	return
 }
 
@@ -243,6 +250,7 @@ func (p *IpvsdrProvider) Stop() error {
 
 	p.deleteChain()
 
+	p.ipvsCacheChecker.stop()
 	p.keepalived.Stop()
 
 	return nil
