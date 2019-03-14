@@ -1,12 +1,11 @@
 package ipvsdr
 
 import (
-	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/zoumo/golib/netutil"
+	"github.com/zoumo/golib/shell"
 	log "github.com/zoumo/logdog"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -46,14 +45,18 @@ func (ipvs *ipvsCacheCleaner) ipvsSaveAndClean() error {
 		return nil
 	}
 
-	cmd := exec.Command("ipvsadm", "-Sn")
-	output, err := cmd.CombinedOutput()
+	ipvsadm := shell.Command("ipvsadm").CombinedOutputClosure()
+	output, err := ipvsadm("-Sn")
 	if err != nil {
 		log.Errorf("Error save ipvs rules: %v", string(output))
 		return err
 	}
+	if len(output) == 0 {
+		// empty rules
+		return nil
+	}
 	// clean the whole table
-	msg, err := exec.Command("ipvsadm", "-C").CombinedOutput()
+	msg, err := ipvsadm("-C")
 	if err != nil {
 		log.Errorf("Error clean ipvs rules: %v", string(msg))
 		return err
@@ -61,6 +64,7 @@ func (ipvs *ipvsCacheCleaner) ipvsSaveAndClean() error {
 
 	ipvs.saved = string(output)
 	log.Info("Waiting for ipvs persistent connection hash table being empty")
+	log.Infof("Saved ipvs rules %q", ipvs.saved)
 	return nil
 }
 
@@ -69,7 +73,7 @@ func (ipvs *ipvsCacheCleaner) ipvsRestore() error {
 		return nil
 	}
 
-	msg, err := exec.Command("bash", "-c", `echo "`+ipvs.saved+`"| ipvsadm -R`).CombinedOutput()
+	msg, err := shell.Command("echo", shell.QueryEscape(ipvs.saved)).Pipe("ipvsadm", "-R").CombinedOutput()
 	if err != nil {
 		log.Errorf("Error restore ipvs rules: %v", string(msg))
 		return err
@@ -106,16 +110,15 @@ func checkCacheExists() bool {
 }
 
 func getLVSCacheLineNumber() (int, error) {
-	cmd := exec.Command("bash", "-c", `ipvsadm -Lnc | wc -l`)
-	output, err := cmd.CombinedOutput()
+	output, err := shell.Command("ipvsadm", "-Lnc").Pipe("wc", "-l").CombinedOutput()
 	out := string(output)
 	if err != nil {
-		log.Error(out)
+		log.Error("Error to count lvs cache lines, %v, err %v", out, err)
 		return 0, err
 	}
-	i, err := strconv.Atoi(strings.TrimSpace(out))
+	i, err := strconv.Atoi(out)
 	if err != nil {
-		log.Errorf("Error to convert %v to int, err %v", out, err)
+		log.Errorf("Error to convert %q to int, err %v", out, err)
 		return 0, err
 	}
 
