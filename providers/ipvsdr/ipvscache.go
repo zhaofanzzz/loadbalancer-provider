@@ -26,17 +26,24 @@ func (ipvs *ipvsCacheCleaner) stop() {
 
 func (ipvs *ipvsCacheCleaner) worker() {
 	vipExists := checkVIPExists(ipvs.vip)
+	if vipExists {
+		// skip check ipvs persistent connection cache
+		// because it may request a lot cpu to do that if
+		// there are a large number of connections
+		// so we just restore it
+		ipvs.ipvsRestore()
+		return
+	}
+
 	cacheExists := checkCacheExists()
-	if !vipExists && cacheExists {
+	if cacheExists {
 		// vip doesn't exist but cache exists
 		// we should clean the rules and wait for cache expiring
 		ipvs.ipvsSaveAndClean()
-	} else if vipExists || (!vipExists && !cacheExists) {
-		// 1. change to master
-		// 2. backup but no cache
+	} else {
+		// backup but no cache
 		ipvs.ipvsRestore()
 	}
-	return
 }
 
 func (ipvs *ipvsCacheCleaner) ipvsSaveAndClean() error {
