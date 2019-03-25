@@ -1,7 +1,8 @@
 package ipvsdr
 
 import (
-	"strconv"
+	"bufio"
+	"os"
 	"time"
 
 	"github.com/zoumo/golib/netutil"
@@ -109,30 +110,21 @@ func checkVIPExists(ip string) bool {
 }
 
 func checkCacheExists() bool {
-	i, err := getLVSCacheLineNumber()
+	// get the first 2 lines of /proc/net/ip_vs_conn
+	ipvsconn, err := os.Open("/proc/net/ip_vs_conn")
 	if err != nil {
 		return false
 	}
-	return i > 0
-}
+	defer ipvsconn.Close()
 
-func getLVSCacheLineNumber() (int, error) {
-	output, err := shell.Command("ipvsadm", "-Lnc").Pipe("wc", "-l").CombinedOutput()
-	out := string(output)
-	if err != nil {
-		log.Error("Error to count lvs cache lines, %v, err %v", out, err)
-		return 0, err
+	scanner := bufio.NewScanner(ipvsconn)
+	number := 0
+	for scanner.Scan() {
+		// the first line is header not entries
+		number++
+		if number >= 2 {
+			return true
+		}
 	}
-	i, err := strconv.Atoi(out)
-	if err != nil {
-		log.Errorf("Error to convert %q to int, err %v", out, err)
-		return 0, err
-	}
-
-	// the first two lines are headers not entries
-	i -= 2
-	if i < 0 {
-		i = 0
-	}
-	return i, nil
+	return false
 }
