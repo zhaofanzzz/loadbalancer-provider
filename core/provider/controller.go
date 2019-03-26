@@ -21,13 +21,11 @@ import (
 	"reflect"
 	"sync"
 
-	log "github.com/zoumo/logdog"
-
 	"github.com/caicloud/clientset/informers"
 	lblisters "github.com/caicloud/clientset/listers/loadbalance/v1alpha2"
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
 	"github.com/caicloud/clientset/util/syncqueue"
-
+	log "github.com/zoumo/logdog"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -79,16 +77,11 @@ func NewLoadBalancerProvider(cfg *Configuration) *GenericProvider {
 	secretinformer := gp.factory.Core().V1().Secrets()
 	secretinformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
 
-	// sync machines
-	machineinformer := gp.factory.Resource().V1beta1().Machines()
-	machineinformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
-
 	gp.cfg.Backend.SetListers(StoreLister{
 		Node:         nodeinformer.Lister(),
 		LoadBalancer: lbinformer.Lister(),
 		ConfigMap:    cminformer.Lister(),
 		Secret:       secretinformer.Lister(),
-		Machine:      machineinformer.Lister(),
 	})
 
 	gp.queue = syncqueue.NewSyncQueue(&lbapi.LoadBalancer{}, gp.syncLoadBalancer)
