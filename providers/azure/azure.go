@@ -121,9 +121,9 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 
 	nlb := lb.DeepCopy()
 
-	azlb, err := l.ensureSync(nlb, tcp, udp)
+	azlb, ip, err := l.ensureSync(nlb, tcp, udp)
 
-	l.updateLoadBalancerAzureStatus(azlb, lb, err)
+	l.updateLoadBalancerAzureStatus(azlb, lb, ip, err)
 	if err == nil {
 		log.Infof("update cache data %v", nlb.Spec.Providers.Azure)
 		l.updateCacheData(nlb, tcp, udp)
@@ -178,10 +178,11 @@ func (l *AzureProvider) Info() core.Info {
 	}
 }
 
-func (l *AzureProvider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer, lb *lbapi.LoadBalancer, err error) {
+func (l *AzureProvider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer, lb *lbapi.LoadBalancer, publicIPAddress string, err error) {
 	if azlb != nil {
 		setProvisioningState(lb, to.String(azlb.ProvisioningState))
 	}
+	setProvisioningPublicIPAddress(lb, publicIPAddress)
 	if err == nil {
 		l.patchLoadBalancerAzureStatus(lb, lbapi.AzureRunningPhase, nil)
 	} else {
@@ -190,7 +191,7 @@ func (l *AzureProvider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer
 }
 
 // make sure azure lb config stay in same with compass lb
-func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]string) (*network.LoadBalancer, error) {
+func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]string) (*network.LoadBalancer, string, error) {
 
 	azureSpec := lb.Spec.Providers.Azure
 	log.Infof("start sync azlb group %s name %s", azureSpec.ResourceGroupName, azureSpec.Name)
@@ -198,31 +199,53 @@ func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]s
 	// update status
 	_, err := l.patchLoadBalancerAzureStatus(lb, lbapi.AzureUpdatingPhase, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	c, err := client.NewClient(&l.storeLister)
 	if err != nil {
 		log.Errorf("init client error %v", err)
-		return nil, err
+		return nil, "", err
 	}
 
 	// get a valid azure load balancer
 	azlb, err := l.ensureAzureLoadbalancer(c, lb)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// make sure default config is correct
 	azlb, err = ensureSyncDefaultAzureLBConfig(c, azlb, lb)
 
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+
+	ip, err := getPublicIPAddress(c, lb)
+	if err != nil {
+		return nil, "", err
 	}
 
 	err = ensureSyncRulesAndBackendPools(c, &l.storeLister, azlb, lb, tcp, udp)
 
-	return azlb, err
+	return azlb, ip, err
+}
+
+func getPublicIPAddress(c *client.Client, lb *lbapi.LoadBalancer) (string, error) {
+	if lb != nil && lb.Spec.Providers.Azure != nil &&
+		lb.Spec.Providers.Azure != nil && lb.Spec.Providers.Azure.IPAddressProperties.Public != nil {
+		public := lb.Spec.Providers.Azure.IPAddressProperties.Public
+		group, name, err := getGroupAndResourceNameFromID(to.String(public.PublicIPAddressID), azurePublicIPAddresses)
+		if err != nil {
+			return "", err
+		}
+		address, err := c.PublicIPAddress.Get(context.TODO(), group, name, "")
+		if err != nil {
+			return "", err
+		}
+		return to.String(address.IPAddress), nil
+	}
+	return "", nil
 }
 
 // get compass lb proxy info and compare with cache data
@@ -367,10 +390,18 @@ func (l *AzureProvider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, pha
 	}
 
 	var provisioningState string
+	var publicIPAddress string
 	if lb != nil && lb.Status.ProvidersStatuses.Azure != nil {
 		provisioningState = lb.Status.ProvidersStatuses.Azure.ProvisioningState
+		publicIPAddress = to.String(lb.Status.ProvidersStatuses.Azure.PublicIPAddress)
 	}
-	patch := fmt.Sprintf(azureProviderStatusFormat, phase, reason, message, provisioningState)
+	var patch string
+	if result == nil {
+		patch = fmt.Sprintf(azureProviderStatusAndPublicIPAddressFormat, phase, reason, message, provisioningState, publicIPAddress)
+	} else {
+		patch = fmt.Sprintf(azureProviderStatusFormat, phase, reason, message, provisioningState)
+	}
+
 	namespace, name := l.loadBalancerNamespace, l.loadBalancerName
 	if lb != nil {
 		namespace, name = lb.Namespace, lb.Name

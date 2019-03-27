@@ -55,6 +55,7 @@ type ClusterStatus struct {
 	OperationLogs  []OperationLog                     `json:"operationLogs,omitempty"`
 	AutoScaling    ClusterAutoScalingStatus           `json:"autoScaling,omitempty"`
 	ProviderStatus ClusterProviderStatus              `json:"providerStatus,omitempty"`
+	Versions       *ClusterVersions                   `json:"versions,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -256,7 +257,7 @@ type AzureManagedClusterAgentPoolProfile struct {
 	Count        int32       `json:"count"`
 	VMSize       AzureVMSize `json:"vmSize"`
 	OSDisk       AzureDisk   `json:"osDisk"`
-	VnetSubnetID string      `json:"vnetSubnetID,omitempty`
+	VnetSubnetID string      `json:"vnetSubnetID,omitempty"`
 	MaxPods      int32       `json:"maxPods"`
 	// OSType for the agent os, only linux is available
 	OSType string `json:"osType"`
@@ -353,11 +354,17 @@ type AzureIpConfig struct {
 	PublicIP         *AzurePublicIP `json:"publicIPAddress,omitempty"`
 }
 
+// AzureDisk is the describe of azure disk object
 type AzureDisk struct {
 	AzureObjectMeta
-	SizeGB  int32  `json:"sizeGB"`
-	SkuName string `json:"skuName"`         // ssd/hdd and theirs upper type
-	Owner   string `json:"owner,omitempty"` // when cleanup, only controller created can be delete
+	// Lun - Specifies the logical unit number of the data disk. This value is used to identify data disks within the VM and therefore must be unique for each data disk attached to a VM.
+	// This value should be [0-63]
+	Lun int32 `json:"lun"`
+	// CreateOption - Specifies how the virtual machine should be created.<br><br> Possible values are:<br><br> **Attach** \u2013 This value is used when you are using a specialized disk to create the virtual machine.<br><br> **FromImage** \u2013 This value is used when you are using an image to create the virtual machine. If you are using a platform image, you also use the imageReference element described above. If you are using a marketplace image, you  also use the plan element previously described. Possible values include: 'DiskCreateOptionTypesFromImage', 'DiskCreateOptionTypesEmpty', 'DiskCreateOptionTypesAttach'
+	CreateOption string `json:"createOption"`
+	SizeGB       int32  `json:"sizeGB"`
+	SkuName      string `json:"skuName"`         // ssd/hdd and theirs upper type
+	Owner        string `json:"owner,omitempty"` // when cleanup, only controller created can be delete
 }
 
 type AzureAvailabilitySet struct { // for future? not used now
@@ -501,8 +508,17 @@ type ConfigList struct {
 // outside
 
 type ClusterNetwork struct {
-	Type        NetworkType `json:"type"`
-	ClusterCIDR string      `json:"clusterCIDR"`
+	Type         NetworkType       `json:"type"`
+	ClusterCIDR  string            `json:"clusterCIDR"`
+	ServiceCIDR  string            `json:"serviceCIDR"`
+	DNSServiceIP string            `json:"dnsServiceIP"`
+	Default      NetworkTemplate   `json:"default"`
+	Extras       []NetworkTemplate `json:"extras,omitempty"`
+}
+
+type NetworkTemplate struct {
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              NetworkSpec `json:"spec"`
 }
 
 type ClusterAuth struct {
@@ -518,8 +534,15 @@ type ClusterAuth struct {
 }
 
 type ClusterVersions struct {
-	MasterSets map[string]string
-	NodeSets   MachineVersions
+	// ClusterSets save the versions of component that run in cluster scope
+	//   like kube version ...
+	ClusterSets map[string]string `json:"clusterSets"`
+	// MasterSets save the versions of component that run in masters
+	//   like apiserver ...
+	MasterSets map[string]string `json:"masterSets"`
+	// MasterSets save the versions of component that run in all nodes
+	//   like kubelet, kube-proxy
+	NodeSets MachineVersions `json:"nodeSets"`
 }
 
 type ClusterCondition struct {
@@ -579,6 +602,7 @@ type ClusterPhase string
 type MachinePhase string
 type PodPhase string
 type MASGPhase string // machine auto scaling group phase
+type InfraNetworkPhase string
 
 type ClusterConditionType string
 type NodeConditionType = corev1.NodeConditionType
@@ -764,7 +788,7 @@ type MASGProviderConfig struct {
 	Azure *AzureMASGProviderConfig `json:"azure"`
 }
 
-// MASGProviderAzureConfig describe machine auto scaling group provider config for azure
+// AzureMASGProviderConfig describe machine auto scaling group provider config for azure
 // similar with AzureMachineCloudProviderConfig, but no nic inside
 type AzureMASGProviderConfig struct {
 	AzureObjectMeta
@@ -853,4 +877,68 @@ type MachineAutoScalingGroupList struct {
 
 	// Items is the list of MachineAutoScalingGroups
 	Items []MachineAutoScalingGroup `json:"items" protobuf:"bytes,2,rep,name=items"`
+}
+
+// +genclient
+// +genclient:nonNamespaced
+// +genclient:noStatus
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// InfraNetwork describe a real exist infrastructure level network
+type InfraNetwork struct {
+	metav1.TypeMeta `json:",inline"`
+	// Standard object's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+
+	Spec   InfraNetworkSpec   `json:"spec"`
+	Status InfraNetworkStatus `json:"status"`
+}
+
+type InfraNetworkSpec struct {
+	// IsControl mark is control cluster inside
+	IsControl bool `json:"isControl"`
+	// Provider describe cloud provider type of this infra network
+	Provider CloudProvider `json:"provider"`
+	// ProviderConfig saves cloud provider detail config
+	ProviderConfig InfraNetworkProviderConfig `json:"providerConfig"`
+}
+
+type InfraNetworkProviderConfig struct {
+	// bare metal config
+	BareMetal *InfraNetworkBareMetalProviderConfig `json:"bareMetal,omitempty"`
+	// azure config
+	Azure *InfraNetworkAzureProviderConfig `json:"azure,omitempty"`
+}
+
+type InfraNetworkBareMetalProviderConfig struct {
+	// simple cidr
+	CIDRs []string `json:"cidrs"`
+}
+
+type InfraNetworkAzureProviderConfig struct {
+	// simple virtual network reference
+	VirtualNetwork AzureVirtualNetwork `json:"virtualNetwork"`
+}
+
+type InfraNetworkStatus struct {
+	// calculated CIDRs
+	CIDRs []string `json:"cidrs"`
+	// status phase of this infra network, describe if it is in use
+	Phase InfraNetworkPhase `json:"phase"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// InfraNetworkList is the list result of infra network
+type InfraNetworkList struct {
+	metav1.TypeMeta `json:",inline"`
+	// Standard list metadata
+	// More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#metadata
+	// +optional
+	metav1.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+
+	// Items is the list of InfraNetworks
+	Items []InfraNetwork `json:"items" protobuf:"bytes,2,rep,name=items"`
 }

@@ -22,6 +22,11 @@ type Client struct {
 	VM               virtualMachineClient
 	NetworkInterface networkInterfaceClient
 	SecurityGroup    securityGroupClient
+	PublicIPAddress  publicIPAddressClient
+}
+
+type publicIPAddressClient interface {
+	Get(ctx context.Context, resourceGroupName, publicAddressName, expand string) (network.PublicIPAddress, error)
 }
 
 type securityGroupClient interface {

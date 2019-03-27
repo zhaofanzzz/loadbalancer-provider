@@ -59,6 +59,9 @@ func NewClientWithConfig(config *Config) (*Client, error) {
 	securityGroupClient := network.NewSecurityGroupsClientWithBaseURI(baseURL, config.SubscriptionID)
 	securityGroupClient.Authorizer = authorizer
 
+	publicIPAddressClient := network.NewPublicIPAddressesClientWithBaseURI(baseURL, config.SubscriptionID)
+	publicIPAddressClient.Authorizer = authorizer
+
 	return &Client{
 		LoadBalancer: &loadBalancerClientWrapper{
 			LoadBalancersClient: lbClient,
@@ -73,6 +76,7 @@ func NewClientWithConfig(config *Config) (*Client, error) {
 		SecurityGroup: &securityGroupClientWrapper{
 			SecurityGroupsClient: securityGroupClient,
 		},
+		PublicIPAddress: publicIPAddressClient,
 	}, nil
 }
 

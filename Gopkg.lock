@@ -42,7 +42,7 @@
 
 [[projects]]
   branch = "release-1.12"
-  digest = "1:6c9cc04c43b85f617a10cd7b3a9e051572d6083f4f84970cd280423d86441ed2"
+  digest = "1:bd8705d4f8f3be8ff3ac84088d9047fd84a10915d95465ebea239a4eb1496727"
   name = "github.com/caicloud/clientset"
   packages = [
     "informers",
@@ -52,14 +52,18 @@
     "informers/apiregistration/v1",
     "informers/clever",
     "informers/clever/v1alpha1",
+    "informers/clever/v1alpha2",
     "informers/cnetworking",
     "informers/cnetworking/v1alpha1",
     "informers/config",
     "informers/config/v1alpha1",
     "informers/dataset",
     "informers/dataset/v1alpha1",
+    "informers/dataset/v1alpha2",
     "informers/devops",
     "informers/devops/v1",
+    "informers/evaluation",
+    "informers/evaluation/v1alpha1",
     "informers/loadbalance",
     "informers/loadbalance/v1alpha2",
     "informers/logging",
@@ -75,6 +79,8 @@
     "informers/resource",
     "informers/resource/v1alpha1",
     "informers/resource/v1beta1",
+    "informers/serving",
+    "informers/serving/v1alpha1",
     "informers/tenant",
     "informers/tenant/v1alpha1",
     "kubernetes",
@@ -82,10 +88,13 @@
     "kubernetes/typed/apiextensions/v1beta1",
     "kubernetes/typed/apiregistration/v1",
     "kubernetes/typed/clever/v1alpha1",
+    "kubernetes/typed/clever/v1alpha2",
     "kubernetes/typed/cnetworking/v1alpha1",
     "kubernetes/typed/config/v1alpha1",
     "kubernetes/typed/dataset/v1alpha1",
+    "kubernetes/typed/dataset/v1alpha2",
     "kubernetes/typed/devops/v1",
+    "kubernetes/typed/evaluation/v1alpha1",
     "kubernetes/typed/loadbalance/v1alpha2",
     "kubernetes/typed/logging/v1alpha1",
     "kubernetes/typed/microservice/v1alpha1",
@@ -94,14 +103,18 @@
     "kubernetes/typed/release/v1alpha1",
     "kubernetes/typed/resource/v1alpha1",
     "kubernetes/typed/resource/v1beta1",
+    "kubernetes/typed/serving/v1alpha1",
     "kubernetes/typed/tenant/v1alpha1",
     "listers/apiextensions/v1beta1",
     "listers/apiregistration/v1",
     "listers/clever/v1alpha1",
+    "listers/clever/v1alpha2",
     "listers/cnetworking/v1alpha1",
     "listers/config/v1alpha1",
     "listers/dataset/v1alpha1",
+    "listers/dataset/v1alpha2",
     "listers/devops/v1",
+    "listers/evaluation/v1alpha1",
     "listers/loadbalance/v1alpha2",
     "listers/logging/v1alpha1",
     "listers/microservice/v1alpha1",
@@ -110,14 +123,18 @@
     "listers/release/v1alpha1",
     "listers/resource/v1alpha1",
     "listers/resource/v1beta1",
+    "listers/serving/v1alpha1",
     "listers/tenant/v1alpha1",
     "pkg/apis/apiextensions/v1beta1",
     "pkg/apis/apiregistration/v1",
     "pkg/apis/clever/v1alpha1",
+    "pkg/apis/clever/v1alpha2",
     "pkg/apis/cnetworking/v1alpha1",
     "pkg/apis/config/v1alpha1",
     "pkg/apis/dataset/v1alpha1",
+    "pkg/apis/dataset/v1alpha2",
     "pkg/apis/devops/v1",
+    "pkg/apis/evaluation/v1alpha1",
     "pkg/apis/loadbalance/v1alpha2",
     "pkg/apis/logging/v1alpha1",
     "pkg/apis/microservice/v1alpha1",
@@ -126,12 +143,13 @@
     "pkg/apis/release/v1alpha1",
     "pkg/apis/resource/v1alpha1",
     "pkg/apis/resource/v1beta1",
+    "pkg/apis/serving/v1alpha1",
     "pkg/apis/tenant/v1alpha1",
     "util/node",
     "util/syncqueue",
   ]
   pruneopts = "NUT"
-  revision = "3cdd7a1ab330560204d97ab8ce55b1c79f9d7b87"
+  revision = "59caab7486975645c39774eca2515065f7d2fd8c"
 
 [[projects]]
   digest = "1:65b0d980b428a6ad4425f2df4cd5410edd81f044cf527bd1c345368444649e58"

@@ -28,6 +28,7 @@ const (
 	azureNetworkInterfaces = "networkInterfaces"
 	azureSecurityGroups    = "networkSecurityGroups"
 	azureVirtualMachines   = "virtualMachines"
+	azurePublicIPAddresses = "publicIPAddresses"
 	azureIPConfigurations  = "/ipConfigurations"
 
 	annotationCaicloudAzure        = "caicloud-azure"
@@ -43,7 +44,8 @@ const (
 	securityGroupTCPPrefix                     = "cps-lb-tcp-"
 	securityGroupUDPPrefix                     = "cps-lb-udp-"
 
-	azureProviderStatusFormat = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s"}}}}`
+	azureProviderStatusFormat                   = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s"}}}}`
+	azureProviderStatusAndPublicIPAddressFormat = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s", "publicIPAddress":"%s"}}}}`
 
 	azureFinalizer = "finalizer.azure.loadbalancer.loadbalance.caicloud.io"
 )

@@ -565,6 +565,13 @@ func usePublicAddress(lb *lbapi.LoadBalancer) bool {
 	return false
 }
 
+func setProvisioningPublicIPAddress(lb *lbapi.LoadBalancer, publicIPAddress string) {
+	if lb.Status.ProvidersStatuses.Azure == nil {
+		lb.Status.ProvidersStatuses.Azure = &lbapi.AzureProviderStatus{}
+	}
+	lb.Status.ProvidersStatuses.Azure.PublicIPAddress = to.StringPtr(publicIPAddress)
+}
+
 func setProvisioningState(lb *lbapi.LoadBalancer, provisioningState string) {
 	if lb.Status.ProvidersStatuses.Azure == nil {
 		lb.Status.ProvidersStatuses.Azure = &lbapi.AzureProviderStatus{}

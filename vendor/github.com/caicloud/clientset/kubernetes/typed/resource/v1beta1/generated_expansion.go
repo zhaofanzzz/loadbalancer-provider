@@ -10,13 +10,21 @@ type ClusterExpansion interface{}
 
 type ConfigExpansion interface{}
 
+type ExtendedResourceExpansion interface{}
+
+type InfraNetworkExpansion interface{}
+
 type MachineExpansion interface{}
 
 type MachineAutoScalingGroupExpansion interface{}
 
+type NetworkExpansion interface{}
+
 type NodeLocalStorageExpansion interface{}
 
 type RequirementGapExpansion interface{}
+
+type ResourceClassExpansion interface{}
 
 type SnapshotExpansion interface{}
 
@@ -25,3 +33,5 @@ type StorageServiceExpansion interface{}
 type StorageTypeExpansion interface{}
 
 type TagExpansion interface{}
+
+type WorkloadNetworkExpansion interface{}
