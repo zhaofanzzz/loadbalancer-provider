@@ -9,6 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-01-01/network"
 	"github.com/Azure/go-autorest/autorest/to"
 	log "github.com/zoumo/logdog"
+	"k8s.io/api/core/v1"
 
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
 	core "github.com/caicloud/loadbalancer-provider/core/provider"
@@ -35,6 +36,7 @@ const (
 	annotationCaicloudAzureAKS     = "caicloud-azure-aks"
 	annotationMachineCloudProvider = "machine.resource.caicloud.io/cloud-provider"
 	annotationVirtualMachineID     = "machine.resource.caicloud.io/virtual-machine-id"
+	labelCaicloudAKSResource       = "kubernetes.azure.com/cluster"
 
 	// the min and max priority get from azure docs
 	minSecurityGroupPriority             int32 = 100
@@ -50,10 +52,39 @@ const (
 	azureFinalizer = "finalizer.azure.loadbalancer.loadbalance.caicloud.io"
 )
 
+// MachineInfo machine info
+type machineInfo struct {
+	VMID      string
+	VMName    string
+	GroupName string
+}
+
+func (m *machineInfo) Parse() (err error) {
+	if len(m.VMName) == 0 {
+		m.VMName, err = getSpecifyName(m.VMID, azureVirtualMachines)
+		if err != nil {
+			return err
+		}
+	}
+	if len(m.GroupName) == 0 {
+		m.GroupName, err = getSpecifyName(m.VMID, azureResourceGroups)
+		return err
+	}
+	return nil
+}
+
 type networkInterfaceIDSet map[string]struct{}
 type securityGroupIDSet map[string]struct{}
 
 func getAzureNetworkInterfacesByNodeName(c *client.Client, nodeName string, storeLister *core.StoreLister) ([]string, error) {
+	machine, err := getMachineInfoFromNode(c, nodeName, storeLister)
+	if err != nil {
+		return nil, err
+	}
+	return getNetworkInterfacesFromVM(c, machine)
+}
+
+func getMachineInfoFromNode(c *client.Client, nodeName string, storeLister *core.StoreLister) (*machineInfo, error) {
 	node, err := storeLister.Node.Get(nodeName)
 	if err != nil {
 		log.Errorf("get node %s falied", nodeName)
@@ -61,34 +92,44 @@ func getAzureNetworkInterfacesByNodeName(c *client.Client, nodeName string, stor
 	}
 	cloudProvider, ok := node.Annotations[annotationMachineCloudProvider]
 	if !ok {
-		return nil, fmt.Errorf("not azure node")
+		return getMachineInfoInAKSCluster(c, node)
 	}
-	if cloudProvider != annotationCaicloudAzure && cloudProvider != annotationCaicloudAzureAKS {
+	if cloudProvider != annotationCaicloudAzure {
 		return nil, fmt.Errorf(" azure node type %s error", cloudProvider)
 	}
 	vmID, ok := node.Annotations[annotationVirtualMachineID]
 	if !ok {
 		return nil, fmt.Errorf("get node virtual machine ID failed")
 	}
-	return getNetworkInterfacesFromVM(c, vmID)
+	return &machineInfo{VMID: vmID}, nil
 }
 
-func getNetworkInterfacesFromVM(c *client.Client, vmID string) ([]string, error) {
-	vmName, err := getSpecifyName(vmID, azureVirtualMachines)
+func getMachineInfoInAKSCluster(c *client.Client, node *v1.Node) (*machineInfo, error) {
+	resourceGroup, ok := node.Labels[labelCaicloudAKSResource]
+	if !ok {
+		return nil, fmt.Errorf("get %s label failed", labelCaicloudAKSResource)
+	}
+	return &machineInfo{
+		VMName:    node.Name,
+		GroupName: resourceGroup,
+	}, nil
+}
+
+func getNetworkInterfacesFromVM(c *client.Client, machine *machineInfo) ([]string, error) {
+	if machine == nil {
+		return nil, fmt.Errorf("invalid vm info")
+	}
+	err := machine.Parse()
 	if err != nil {
 		return nil, err
 	}
-	groupName, err := getSpecifyName(vmID, azureResourceGroups)
-	if err != nil {
-		return nil, err
-	}
-	vm, err := c.VM.Get(context.TODO(), groupName, vmName, "")
+	vm, err := c.VM.Get(context.TODO(), machine.GroupName, machine.VMName, "")
 	if err != nil {
 		return nil, err
 	}
 
 	if vm.NetworkProfile.NetworkInterfaces == nil || len(*vm.NetworkProfile.NetworkInterfaces) == 0 {
-		return nil, fmt.Errorf("vm %s has no networkInterfaces", vmID)
+		return nil, fmt.Errorf("vm %s has no networkInterfaces", vm.Name)
 	}
 	networkInterfaces := make([]string, 0, len(*vm.NetworkProfile.NetworkInterfaces))
 	for _, networkInterface := range *vm.NetworkProfile.NetworkInterfaces {
