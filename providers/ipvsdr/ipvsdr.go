@@ -19,6 +19,7 @@ package ipvsdr
 import (
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"time"
 
@@ -176,6 +177,8 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	for _, n := range resolvedNeighbors {
 		resolvedNodes = append(resolvedNodes, n.IP)
 	}
+	// Important!!
+	sort.Strings(resolvedNodes)
 
 	svc := virtualServer{
 		VIP:        lb.Spec.Providers.Ipvsdr.VIP,
