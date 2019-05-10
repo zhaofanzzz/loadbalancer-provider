@@ -63,7 +63,7 @@ func getProbesBrief(probes *[]network.Probe) *[]network.Probe {
 func getAzureLoadBalancerFrontendIPConfigByConfig(properties lbapi.AzureIPAddressProperties) *[]network.FrontendIPConfiguration {
 	frontendIPConfigurations := make([]network.FrontendIPConfiguration, 1)
 	frontendIPConfiguration := network.FrontendIPConfiguration{
-		Name: to.StringPtr(azureLoadBalancerFrontendName),
+		Name:                                    to.StringPtr(azureLoadBalancerFrontendName),
 		FrontendIPConfigurationPropertiesFormat: &network.FrontendIPConfigurationPropertiesFormat{},
 	}
 	// make up front end private address config
@@ -442,9 +442,9 @@ func getSecurityGroupRuleBrief(rule *network.SecurityRule) *network.SecurityRule
 			DestinationPortRange:     rule.DestinationPortRange,
 			SourceAddressPrefix:      rule.SourceAddressPrefix,
 			DestinationAddressPrefix: rule.DestinationAddressPrefix,
-			Access:    rule.Access,
-			Priority:  rule.Priority,
-			Direction: rule.Direction,
+			Access:                   rule.Access,
+			Priority:                 rule.Priority,
+			Direction:                rule.Direction,
 		},
 	}
 }
@@ -463,9 +463,9 @@ func getDefaultSecurityGroupRule(prefix, port string, priority *int32) *network.
 			DestinationPortRange:     to.StringPtr(port),
 			SourceAddressPrefix:      to.StringPtr("*"),
 			DestinationAddressPrefix: to.StringPtr("*"),
-			Access:    network.SecurityRuleAccessAllow,
-			Priority:  priority,
-			Direction: network.SecurityRuleDirectionInbound,
+			Access:                   network.SecurityRuleAccessAllow,
+			Priority:                 priority,
+			Direction:                network.SecurityRuleDirectionInbound,
 		},
 	}
 }
@@ -770,32 +770,28 @@ func recoverDefaultAzureLoadBalancer(c *client.Client, groupName, lbName string)
 	}
 
 	pools := azlb.BackendAddressPools
-
 	// update azlb
 	log.Infof("start recover default azure loadbalancer lb")
+	if pools != nil && len(*pools) != 0 {
+		// 3.clean backend pools netInterfaces
+		pool := (*pools)[0]
+		poolID := to.String(pool.ID)
+
+		// 4.detach all netInterfaces with backend pool ID
+		if pool.BackendIPConfigurations != nil && len(*pool.BackendIPConfigurations) != 0 {
+			log.Infof("detach BackendIPConfigurations len %v to poolID %s", len(*pool.BackendIPConfigurations), poolID)
+			configs := *pool.BackendIPConfigurations
+			for _, config := range configs {
+				err = detachNetworkInterfacesAndLoadBalancer(c, to.String(config.ID), poolID)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
 	_, err = c.LoadBalancer.CreateOrUpdate(context.TODO(), groupName, lbName, azlb)
 	if err != nil {
 		return err
-	}
-
-	if pools == nil || len(*pools) == 0 {
-		return nil
-	}
-	// 3.clean backend pools netInterfaces
-	pool := (*pools)[0]
-	poolID := to.String(pool.ID)
-
-	// 4.detach all netInterfaces with backend pool ID
-	if pool.BackendIPConfigurations == nil || len(*pool.BackendIPConfigurations) == 0 {
-		return nil
-	}
-	log.Infof("detach BackendIPConfigurations len %v to poolID %s", len(*pool.BackendIPConfigurations), poolID)
-	configs := *pool.BackendIPConfigurations
-	for _, config := range configs {
-		err = detachNetworkInterfacesAndLoadBalancer(c, to.String(config.ID), poolID)
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }
