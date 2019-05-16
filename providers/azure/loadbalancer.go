@@ -292,12 +292,12 @@ func ensureSyncRulesAndBackendPools(c *client.Client, storeLister *core.StoreLis
 	// if use public address , need sync security rules to the security group
 	if usePublicAddress(lb) {
 		// add default security group rules
-		if tcpMap == nil {
-			tcpMap = make(map[string]string)
-		}
-		tcpMap["80"] = ""
-		tcpMap["443"] = ""
-		err = syncSecurityGroupRules(c, tcpMap, udpMap, detachNetworks, azlbBackendNetworksMap)
+		tcpTemp := copyMap(tcpMap)
+		udpTemp := copyMap(udpMap)
+		// add default port
+		tcpTemp["80"] = ""
+		tcpTemp["443"] = ""
+		err = syncSecurityGroupRules(c, tcpTemp, udpTemp, detachNetworks, azlbBackendNetworksMap)
 		log.Infof("sync security group rules result %v", err)
 	}
 	return err
@@ -332,8 +332,6 @@ func ensureSyncRulesToSecurityGroups(c *client.Client, sgIDs securityGroupIDSet,
 		}
 		newRules := make([]network.SecurityRule, 0, len(*sg.SecurityRules)+len(tcp)+len(udp))
 		var change bool
-		tcpClone := copyMap(tcp)
-		udpClone := copyMap(udp)
 
 		// priority value is unique in the sg rules
 		// store used and be deleted priority value
@@ -358,11 +356,11 @@ func ensureSyncRulesToSecurityGroups(c *client.Client, sgIDs securityGroupIDSet,
 				}
 			}
 		}
-		if len(udpClone) != 0 || len(tcpClone) != 0 {
+		if len(udp) != 0 || len(tcp) != 0 {
 			change = true
 		}
 
-		for port := range udpClone {
+		for port := range udp {
 			priority, err := getValidPriority(sgUsedPriorityMap, sgDeletePriorityMap)
 			if err != nil {
 				return err
@@ -372,7 +370,7 @@ func ensureSyncRulesToSecurityGroups(c *client.Client, sgIDs securityGroupIDSet,
 			newRules = append(newRules, *rule)
 		}
 
-		for port := range tcpClone {
+		for port := range tcp {
 			priority, err := getValidPriority(sgUsedPriorityMap, sgDeletePriorityMap)
 			if err != nil {
 				return err
@@ -479,9 +477,9 @@ func getSecurityGroupRuleBrief(rule *network.SecurityRule) *network.SecurityRule
 			DestinationPortRange:     rule.DestinationPortRange,
 			SourceAddressPrefix:      rule.SourceAddressPrefix,
 			DestinationAddressPrefix: rule.DestinationAddressPrefix,
-			Access:                   rule.Access,
-			Priority:                 rule.Priority,
-			Direction:                rule.Direction,
+			Access:    rule.Access,
+			Priority:  rule.Priority,
+			Direction: rule.Direction,
 		},
 	}
 }
@@ -500,9 +498,9 @@ func getDefaultSecurityGroupRule(prefix, port string, priority *int32) *network.
 			DestinationPortRange:     to.StringPtr(port),
 			SourceAddressPrefix:      to.StringPtr("*"),
 			DestinationAddressPrefix: to.StringPtr("*"),
-			Access:                   network.SecurityRuleAccessAllow,
-			Priority:                 priority,
-			Direction:                network.SecurityRuleDirectionInbound,
+			Access:    network.SecurityRuleAccessAllow,
+			Priority:  priority,
+			Direction: network.SecurityRuleDirectionInbound,
 		},
 	}
 }
@@ -617,15 +615,17 @@ func setProvisioningState(lb *lbapi.LoadBalancer, provisioningState string) {
 }
 
 func syncRules(c *client.Client, azlb *network.LoadBalancer, tcpMap, udpMap map[string]string, groupName string) (err error) {
-
 	log.Infof("sync rules azlb group %s name %s , \ntcp rules :%v \nudp rules: %v", groupName, to.String(azlb.Name), tcpMap, udpMap)
-	change := makeUpRules(azlb, tcpMap, udpMap)
+	tcpTemp := copyMap(tcpMap)
+	udpTemp := copyMap(udpMap)
+	change := makeUpRules(azlb, tcpTemp, udpTemp)
 	if change {
-		*azlb, err = c.LoadBalancer.CreateOrUpdate(context.TODO(), groupName, to.String(azlb.Name), *azlb)
+		lb, err := c.LoadBalancer.CreateOrUpdate(context.TODO(), groupName, to.String(azlb.Name), *azlb)
 		if err != nil {
 			log.Errorf("update azure lb failed:%v", err)
 			return err
 		}
+		azlb = &lb
 	}
 	return nil
 }
