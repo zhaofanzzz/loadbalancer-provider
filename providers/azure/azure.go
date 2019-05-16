@@ -98,16 +98,7 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	l.setCacheReserveStatus(lb.Spec.Providers.Azure.ReserveAzure)
 
 	// tell if change of load balancer
-	var tcp, udp map[string]string
-	var ruleChange bool
-	err := wait.Poll(5*time.Second, 60*time.Second, func() (bool, error) {
-		var err error
-		tcp, udp, ruleChange, err = l.getProxyConfigMapAndCompare(lb)
-		if err == nil {
-			return true, nil
-		}
-		return false, err
-	})
+	tcp, udp, ruleChange, err := l.getProxyConfigMapAndCompare(lb)
 	if err != nil {
 		return err
 	}

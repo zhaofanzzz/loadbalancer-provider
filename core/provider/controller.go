@@ -26,7 +26,7 @@ import (
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
 	"github.com/caicloud/clientset/util/syncqueue"
 	log "github.com/zoumo/logdog"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
@@ -170,7 +170,9 @@ func (p *GenericProvider) updateLoadBalancer(oldObj, curObj interface{}) {
 	// ignore change of status
 	if reflect.DeepEqual(old.Spec, cur.Spec) &&
 		reflect.DeepEqual(old.Finalizers, cur.Finalizers) &&
-		reflect.DeepEqual(old.DeletionTimestamp, cur.DeletionTimestamp) {
+		reflect.DeepEqual(old.DeletionTimestamp, cur.DeletionTimestamp) &&
+		reflect.DeepEqual(old.Status.ProxyStatus.TCPConfigMap, cur.Status.ProxyStatus.TCPConfigMap) &&
+		reflect.DeepEqual(old.Status.ProxyStatus.UDPConfigMap, cur.Status.ProxyStatus.UDPConfigMap) {
 		return
 	}
 
