@@ -2,6 +2,7 @@ package azure
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -19,7 +20,10 @@ import (
 // make sure config the correct default info
 func ensureSyncDefaultAzureLBConfig(c *client.Client, azlb *network.LoadBalancer, lb *lbapi.LoadBalancer) (*network.LoadBalancer, error) {
 	var err error
-	azlb, change := ensureSyncDefaultConfigExceptRules(azlb, lb)
+	azlb, change, err := ensureSyncDefaultConfigExceptRules(azlb, lb)
+	if err != nil {
+		return nil, err
+	}
 	if change {
 		// if probe frontend or backend changed, must clean rules because of rules will invoke
 		// the resources reference above all, but the resources can be deleted
@@ -63,7 +67,7 @@ func getProbesBrief(probes *[]network.Probe) *[]network.Probe {
 func getAzureLoadBalancerFrontendIPConfigByConfig(properties lbapi.AzureIPAddressProperties) *[]network.FrontendIPConfiguration {
 	frontendIPConfigurations := make([]network.FrontendIPConfiguration, 1)
 	frontendIPConfiguration := network.FrontendIPConfiguration{
-		Name:                                    to.StringPtr(azureLoadBalancerFrontendName),
+		Name: to.StringPtr(azureLoadBalancerFrontendName),
 		FrontendIPConfigurationPropertiesFormat: &network.FrontendIPConfigurationPropertiesFormat{},
 	}
 	// make up front end private address config
@@ -90,36 +94,47 @@ func getAzureLoadBalancerFrontendIPConfigBrief(ipConfigs *[]network.FrontendIPCo
 	if ipConfigs == nil || len(*ipConfigs) == 0 {
 		return nil
 	}
-	brief := make([]network.FrontendIPConfiguration, 0, len(*ipConfigs))
+	briefs := make([]network.FrontendIPConfiguration, 0, len(*ipConfigs))
 	for _, config := range *ipConfigs {
 		format := config.FrontendIPConfigurationPropertiesFormat
 		if format != nil {
-			brief = append(brief, network.FrontendIPConfiguration{
+			brief := network.FrontendIPConfiguration{
+				Name: config.Name,
 				FrontendIPConfigurationPropertiesFormat: &network.FrontendIPConfigurationPropertiesFormat{
-					PrivateIPAllocationMethod: format.PrivateIPAllocationMethod,
-					PrivateIPAddress:          format.PrivateIPAddress,
-					Subnet:                    format.Subnet,
-					PublicIPAddress:           format.PublicIPAddress,
+					Subnet: format.Subnet,
 				},
-			})
+			}
+			if format.PrivateIPAddress != nil {
+				brief.PrivateIPAddress = format.PrivateIPAddress
+				brief.PrivateIPAllocationMethod = format.PrivateIPAllocationMethod
+			} else {
+				brief.PublicIPAddress = format.PublicIPAddress
+			}
+			briefs = append(briefs, brief)
 		}
 	}
-	return &brief
+	return &briefs
 }
 
 // check probe backend and frontend in same config except chore for example Etag、ProvisioningState
-func ensureSyncDefaultConfigExceptRules(azlb *network.LoadBalancer, lb *lbapi.LoadBalancer) (*network.LoadBalancer, bool) {
+func ensureSyncDefaultConfigExceptRules(azlb *network.LoadBalancer, lb *lbapi.LoadBalancer) (*network.LoadBalancer, bool, error) {
 	var change bool
 	// 1.ensure probe
 	probes := defaultClusterAzureLBProbes()
 	probesBrief := getProbesBrief(azlb.Probes)
-	if !reflect.DeepEqual(probesBrief, &probes) {
+	equal, err := isEqual(&probes, probesBrief)
+	if err != nil {
+		return azlb, change, err
+	}
+	if !equal {
+		log.Infof("probes is change %v \n %v \n", probes, probesBrief)
 		azlb.Probes = &probes
 		change = true
 	}
 
 	// 2.check backend
 	if azlb.BackendAddressPools == nil || len(*azlb.BackendAddressPools) == 0 {
+		log.Infof("BackendAddressPools is change %v", *azlb.BackendAddressPools)
 		azlb.BackendAddressPools = &[]network.BackendAddressPool{
 			{
 				Name: to.StringPtr(azureLoadBalancerBackendName),
@@ -131,11 +146,32 @@ func ensureSyncDefaultConfigExceptRules(azlb *network.LoadBalancer, lb *lbapi.Lo
 	// 3.check frontend
 	frontsConfig := getAzureLoadBalancerFrontendIPConfigByConfig(lb.Spec.Providers.Azure.IPAddressProperties)
 	frontsBrief := getAzureLoadBalancerFrontendIPConfigBrief(azlb.FrontendIPConfigurations)
-	if !reflect.DeepEqual(frontsConfig, frontsBrief) {
+	equal, err = isEqual(frontsConfig, frontsBrief)
+	if err != nil {
+		return azlb, change, err
+	}
+	if !equal {
+		log.Infof("frontsConfig is change %v \n %v \n", frontsConfig, frontsBrief)
 		azlb.FrontendIPConfigurations = frontsConfig
 		change = true
 	}
-	return azlb, change
+	return azlb, change, nil
+}
+
+func isEqual(src, dest interface{}) (bool, error) {
+	i, err := json.Marshal(src)
+	if err != nil {
+		return false, err
+	}
+	j, err := json.Marshal(dest)
+	if err != nil {
+		return false, err
+	}
+	if reflect.DeepEqual(i, j) {
+		return true, nil
+	}
+	log.Infof("src %s \ndest %s \n", string(i), string(j))
+	return false, nil
 }
 
 // create a default azure load balancer
@@ -168,6 +204,7 @@ func ensureSyncDefaultRules(c *client.Client, azlb *network.LoadBalancer, lb *lb
 		return azlb, nil
 	}
 	var err error
+	log.Infof("update default lb rules nums %d...", len(*azlb.LoadBalancingRules))
 	*azlb, err = c.LoadBalancer.CreateOrUpdate(context.TODO(), lb.Spec.Providers.Azure.ResourceGroupName, to.String(azlb.Name), *azlb)
 	if err != nil {
 		log.Errorf(" update LoadBalancer failed, %v", err)
@@ -306,7 +343,7 @@ func ensureSyncRulesToSecurityGroups(c *client.Client, sgIDs securityGroupIDSet,
 		if sg.SecurityRules != nil && len(*sg.SecurityRules) != 0 {
 			for i := range *sg.SecurityRules {
 				rule := (*sg.SecurityRules)[i]
-				modify, remain, err := ensureSyncWithDefaultSetting(&rule, tcpClone, udpClone)
+				modify, remain, err := ensureSyncWithDefaultSetting(&rule, tcp, udp)
 				if err != nil {
 					return err
 				}

@@ -125,7 +125,7 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 
 	l.updateLoadBalancerAzureStatus(azlb, lb, ip, err)
 	if err == nil {
-		log.Infof("update cache data %v", nlb.Spec.Providers.Azure)
+		log.Infof("update cache data %v tcp %v udp %v", nlb.Spec.Providers.Azure, tcp, udp)
 		l.updateCacheData(nlb, tcp, udp)
 	}
 	return err
@@ -194,7 +194,7 @@ func (l *AzureProvider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer
 func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]string) (*network.LoadBalancer, string, error) {
 
 	azureSpec := lb.Spec.Providers.Azure
-	log.Infof("start sync azlb group %s name %s", azureSpec.ResourceGroupName, azureSpec.Name)
+	log.Infof("start sync azlb group %s name %s tcp %v", azureSpec.ResourceGroupName, azureSpec.Name, tcp)
 
 	// update status
 	_, err := l.patchLoadBalancerAzureStatus(lb, lbapi.AzureUpdatingPhase, nil)
@@ -260,26 +260,8 @@ func (l *AzureProvider) getProxyConfigMapAndCompare(lb *lbapi.LoadBalancer) (map
 		log.Errorf("get namespace %s cm %s failed err : %v", lb.Namespace, lb.Status.ProxyStatus.TCPConfigMap, err)
 		return nil, nil, false, client.NewServiceError("K8SStore", err.Error())
 	}
-	if len(l.tcpRuleMap) != len(tcpCm.Data) || len(l.udpRuleMap) != len(udpCm.Data) {
+	if !reflect.DeepEqual(l.tcpRuleMap, tcpCm.Data) || reflect.DeepEqual(l.udpRuleMap, udpCm.Data) {
 		return tcpCm.Data, udpCm.Data, true, nil
-	}
-	for key, value := range l.tcpRuleMap {
-		v, ok := tcpCm.Data[key]
-		if !ok {
-			return tcpCm.Data, udpCm.Data, true, nil
-		}
-		if v != value {
-			return tcpCm.Data, udpCm.Data, true, nil
-		}
-	}
-	for key, value := range l.udpRuleMap {
-		v, ok := udpCm.Data[key]
-		if !ok {
-			return tcpCm.Data, udpCm.Data, true, nil
-		}
-		if v != value {
-			return tcpCm.Data, udpCm.Data, true, nil
-		}
 	}
 	return tcpCm.Data, udpCm.Data, false, nil
 }
