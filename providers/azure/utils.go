@@ -263,10 +263,6 @@ func remainConstantRules(oldRules []network.LoadBalancingRule, tcpMap, udpMap ma
 	newRules := make([]network.LoadBalancingRule, 0, len(oldRules))
 	var diff bool
 	for _, rule := range oldRules {
-		if isDefaultRules(&rule) {
-			newRules = append(newRules, rule)
-			continue
-		}
 		port := to.Int32(rule.FrontendPort)
 		portKey := strconv.FormatInt(int64(port), 10)
 		var m map[string]string
@@ -284,11 +280,15 @@ func remainConstantRules(oldRules []network.LoadBalancingRule, tcpMap, udpMap ma
 		if ok {
 			ruleName := getRuleName(port, rule.Protocol)
 			if to.String(rule.Name) == ruleName {
-				delete(tcpMap, portKey)
+				delete(m, portKey)
 				// fmt.Printf("ruleName %s rule.Name %s\n", ruleName, to.String(rule.Name))
 				newRules = append(newRules, rule)
 				continue
 			}
+		}
+		if isDefaultRules(&rule) {
+			newRules = append(newRules, rule)
+			continue
 		}
 		diff = true
 	}
