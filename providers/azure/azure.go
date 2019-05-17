@@ -260,7 +260,7 @@ func (l *AzureProvider) getProxyConfigMapAndCompare(lb *lbapi.LoadBalancer) (map
 		log.Errorf("get namespace %s cm %s failed err : %v", lb.Namespace, lb.Status.ProxyStatus.TCPConfigMap, err)
 		return nil, nil, false, client.NewServiceError("K8SStore", err.Error())
 	}
-	if !reflect.DeepEqual(l.tcpRuleMap, tcpCm.Data) || reflect.DeepEqual(l.udpRuleMap, udpCm.Data) {
+	if !reflect.DeepEqual(l.tcpRuleMap, tcpCm.Data) || !reflect.DeepEqual(l.udpRuleMap, udpCm.Data) {
 		return tcpCm.Data, udpCm.Data, true, nil
 	}
 	return tcpCm.Data, udpCm.Data, false, nil
