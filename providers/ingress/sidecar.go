@@ -49,18 +49,18 @@ var (
 
 		// about tcp keepalive
 		// set tcp keepalive timeout time
-		"net.ipv4.tcp_keepalive_time": "1800",
+		//"net.ipv4.tcp_keepalive_time": "1800",
 		// set tcp keepalive probe interval
-		"net.ipv4.tcp_keepalive_intvl": "30",
+		//"net.ipv4.tcp_keepalive_intvl": "30",
 		// set tcp keepalive probe times
-		"net.ipv4.tcp_keepalive_probes": "3",
+		//"net.ipv4.tcp_keepalive_probes": "3",
 
 		// reduse time wait buckets
 		"net.ipv4.tcp_max_tw_buckets": "6000",
 		// expand local port range
-		"net.ipv4.ip_local_port_range": "10240 65000",
+		//"net.ipv4.ip_local_port_range": "10240 65000",
 		// reduse time to hold socket in state FIN-WAIT-2
-		"net.ipv4.tcp_fin_timeout": "30",
+		//"net.ipv4.tcp_fin_timeout": "30",
 		// increase the maximum length of the queue for incomplete sockets
 		"net.ipv4.tcp_max_syn_backlog": "8192",
 
