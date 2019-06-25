@@ -7,6 +7,7 @@ Copyright 2019 caicloud authors. All rights reserved.
 package kubernetes
 
 import (
+	alertingv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/alerting/v1alpha1"
 	apiextensionsv1beta1 "github.com/caicloud/clientset/kubernetes/typed/apiextensions/v1beta1"
 	apiregistrationv1 "github.com/caicloud/clientset/kubernetes/typed/apiregistration/v1"
 	cleverv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/clever/v1alpha1"
@@ -25,8 +26,10 @@ import (
 	releasev1alpha1 "github.com/caicloud/clientset/kubernetes/typed/release/v1alpha1"
 	resourcev1alpha1 "github.com/caicloud/clientset/kubernetes/typed/resource/v1alpha1"
 	resourcev1beta1 "github.com/caicloud/clientset/kubernetes/typed/resource/v1beta1"
+	servicemeshv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/servicemesh/v1alpha1"
 	servingv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/serving/v1alpha1"
 	tenantv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/tenant/v1alpha1"
+	workloadv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/workload/v1alpha1"
 	kubernetes "k8s.io/client-go/kubernetes"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
@@ -34,6 +37,9 @@ import (
 
 type Interface interface {
 	kubernetes.Interface
+	AlertingV1alpha1() alertingv1alpha1.AlertingV1alpha1Interface
+	// Deprecated: please explicitly pick a version if possible.
+	Alerting() alertingv1alpha1.AlertingV1alpha1Interface
 	ApiextensionsV1beta1() apiextensionsv1beta1.ApiextensionsV1beta1Interface
 	// Deprecated: please explicitly pick a version if possible.
 	Apiextensions() apiextensionsv1beta1.ApiextensionsV1beta1Interface
@@ -82,18 +88,25 @@ type Interface interface {
 	ResourceV1beta1() resourcev1beta1.ResourceV1beta1Interface
 	// Deprecated: please explicitly pick a version if possible.
 	Resource() resourcev1beta1.ResourceV1beta1Interface
+	ServicemeshV1alpha1() servicemeshv1alpha1.ServicemeshV1alpha1Interface
+	// Deprecated: please explicitly pick a version if possible.
+	Servicemesh() servicemeshv1alpha1.ServicemeshV1alpha1Interface
 	ServingV1alpha1() servingv1alpha1.ServingV1alpha1Interface
 	// Deprecated: please explicitly pick a version if possible.
 	Serving() servingv1alpha1.ServingV1alpha1Interface
 	TenantV1alpha1() tenantv1alpha1.TenantV1alpha1Interface
 	// Deprecated: please explicitly pick a version if possible.
 	Tenant() tenantv1alpha1.TenantV1alpha1Interface
+	WorkloadV1alpha1() workloadv1alpha1.WorkloadV1alpha1Interface
+	// Deprecated: please explicitly pick a version if possible.
+	Workload() workloadv1alpha1.WorkloadV1alpha1Interface
 }
 
 // Clientset contains the clients for groups. Each group has exactly one
 // version included in a Clientset.
 type Clientset struct {
 	*kubernetes.Clientset
+	alertingV1alpha1      *alertingv1alpha1.AlertingV1alpha1Client
 	apiextensionsV1beta1  *apiextensionsv1beta1.ApiextensionsV1beta1Client
 	apiregistrationV1     *apiregistrationv1.ApiregistrationV1Client
 	cleverV1alpha1        *cleverv1alpha1.CleverV1alpha1Client
@@ -112,8 +125,21 @@ type Clientset struct {
 	releaseV1alpha1       *releasev1alpha1.ReleaseV1alpha1Client
 	resourceV1alpha1      *resourcev1alpha1.ResourceV1alpha1Client
 	resourceV1beta1       *resourcev1beta1.ResourceV1beta1Client
+	servicemeshV1alpha1   *servicemeshv1alpha1.ServicemeshV1alpha1Client
 	servingV1alpha1       *servingv1alpha1.ServingV1alpha1Client
 	tenantV1alpha1        *tenantv1alpha1.TenantV1alpha1Client
+	workloadV1alpha1      *workloadv1alpha1.WorkloadV1alpha1Client
+}
+
+// AlertingV1alpha1 retrieves the AlertingV1alpha1Client
+func (c *Clientset) AlertingV1alpha1() alertingv1alpha1.AlertingV1alpha1Interface {
+	return c.alertingV1alpha1
+}
+
+// Deprecated: Alerting retrieves the default version of AlertingClient.
+// Please explicitly pick a version.
+func (c *Clientset) Alerting() alertingv1alpha1.AlertingV1alpha1Interface {
+	return c.alertingV1alpha1
 }
 
 // ApiextensionsV1beta1 retrieves the ApiextensionsV1beta1Client
@@ -296,6 +322,17 @@ func (c *Clientset) Resource() resourcev1beta1.ResourceV1beta1Interface {
 	return c.resourceV1beta1
 }
 
+// ServicemeshV1alpha1 retrieves the ServicemeshV1alpha1Client
+func (c *Clientset) ServicemeshV1alpha1() servicemeshv1alpha1.ServicemeshV1alpha1Interface {
+	return c.servicemeshV1alpha1
+}
+
+// Deprecated: Servicemesh retrieves the default version of ServicemeshClient.
+// Please explicitly pick a version.
+func (c *Clientset) Servicemesh() servicemeshv1alpha1.ServicemeshV1alpha1Interface {
+	return c.servicemeshV1alpha1
+}
+
 // ServingV1alpha1 retrieves the ServingV1alpha1Client
 func (c *Clientset) ServingV1alpha1() servingv1alpha1.ServingV1alpha1Interface {
 	return c.servingV1alpha1
@@ -318,6 +355,17 @@ func (c *Clientset) Tenant() tenantv1alpha1.TenantV1alpha1Interface {
 	return c.tenantV1alpha1
 }
 
+// WorkloadV1alpha1 retrieves the WorkloadV1alpha1Client
+func (c *Clientset) WorkloadV1alpha1() workloadv1alpha1.WorkloadV1alpha1Interface {
+	return c.workloadV1alpha1
+}
+
+// Deprecated: Workload retrieves the default version of WorkloadClient.
+// Please explicitly pick a version.
+func (c *Clientset) Workload() workloadv1alpha1.WorkloadV1alpha1Interface {
+	return c.workloadV1alpha1
+}
+
 // NewForConfig creates a new Clientset for the given config.
 func NewForConfig(c *rest.Config) (*Clientset, error) {
 	configShallowCopy := *c
@@ -326,6 +374,10 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 	}
 	var cs Clientset
 	var err error
+	cs.alertingV1alpha1, err = alertingv1alpha1.NewForConfig(&configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
 	cs.apiextensionsV1beta1, err = apiextensionsv1beta1.NewForConfig(&configShallowCopy)
 	if err != nil {
 		return nil, err
@@ -398,11 +450,19 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 	if err != nil {
 		return nil, err
 	}
+	cs.servicemeshV1alpha1, err = servicemeshv1alpha1.NewForConfig(&configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
 	cs.servingV1alpha1, err = servingv1alpha1.NewForConfig(&configShallowCopy)
 	if err != nil {
 		return nil, err
 	}
 	cs.tenantV1alpha1, err = tenantv1alpha1.NewForConfig(&configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.workloadV1alpha1, err = workloadv1alpha1.NewForConfig(&configShallowCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +478,7 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 // panics if there is an error in the config.
 func NewForConfigOrDie(c *rest.Config) *Clientset {
 	var cs Clientset
+	cs.alertingV1alpha1 = alertingv1alpha1.NewForConfigOrDie(c)
 	cs.apiextensionsV1beta1 = apiextensionsv1beta1.NewForConfigOrDie(c)
 	cs.apiregistrationV1 = apiregistrationv1.NewForConfigOrDie(c)
 	cs.cleverV1alpha1 = cleverv1alpha1.NewForConfigOrDie(c)
@@ -436,8 +497,10 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 	cs.releaseV1alpha1 = releasev1alpha1.NewForConfigOrDie(c)
 	cs.resourceV1alpha1 = resourcev1alpha1.NewForConfigOrDie(c)
 	cs.resourceV1beta1 = resourcev1beta1.NewForConfigOrDie(c)
+	cs.servicemeshV1alpha1 = servicemeshv1alpha1.NewForConfigOrDie(c)
 	cs.servingV1alpha1 = servingv1alpha1.NewForConfigOrDie(c)
 	cs.tenantV1alpha1 = tenantv1alpha1.NewForConfigOrDie(c)
+	cs.workloadV1alpha1 = workloadv1alpha1.NewForConfigOrDie(c)
 
 	cs.Clientset = kubernetes.NewForConfigOrDie(c)
 	return &cs
@@ -446,6 +509,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 // New creates a new Clientset for the given RESTClient.
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
+	cs.alertingV1alpha1 = alertingv1alpha1.New(c)
 	cs.apiextensionsV1beta1 = apiextensionsv1beta1.New(c)
 	cs.apiregistrationV1 = apiregistrationv1.New(c)
 	cs.cleverV1alpha1 = cleverv1alpha1.New(c)
@@ -464,8 +528,10 @@ func New(c rest.Interface) *Clientset {
 	cs.releaseV1alpha1 = releasev1alpha1.New(c)
 	cs.resourceV1alpha1 = resourcev1alpha1.New(c)
 	cs.resourceV1beta1 = resourcev1beta1.New(c)
+	cs.servicemeshV1alpha1 = servicemeshv1alpha1.New(c)
 	cs.servingV1alpha1 = servingv1alpha1.New(c)
 	cs.tenantV1alpha1 = tenantv1alpha1.New(c)
+	cs.workloadV1alpha1 = workloadv1alpha1.New(c)
 
 	cs.Clientset = kubernetes.New(c)
 	return &cs

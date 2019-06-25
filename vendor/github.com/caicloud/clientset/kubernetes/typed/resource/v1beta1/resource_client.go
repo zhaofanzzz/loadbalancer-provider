@@ -22,6 +22,7 @@ type ResourceV1beta1Interface interface {
 	MachinesGetter
 	MachineAutoScalingGroupsGetter
 	NetworksGetter
+	NodeClaimsGetter
 	NodeLocalStoragesGetter
 	RequirementGapsGetter
 	ResourceClassesGetter
@@ -63,6 +64,10 @@ func (c *ResourceV1beta1Client) MachineAutoScalingGroups() MachineAutoScalingGro
 
 func (c *ResourceV1beta1Client) Networks() NetworkInterface {
 	return newNetworks(c)
+}
+
+func (c *ResourceV1beta1Client) NodeClaims() NodeClaimInterface {
+	return newNodeClaims(c)
 }
 
 func (c *ResourceV1beta1Client) NodeLocalStorages() NodeLocalStorageInterface {

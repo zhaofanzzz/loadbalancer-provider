@@ -9,6 +9,7 @@ package informers
 import (
 	time "time"
 
+	alerting "github.com/caicloud/clientset/informers/alerting"
 	apiextensions "github.com/caicloud/clientset/informers/apiextensions"
 	apiregistration "github.com/caicloud/clientset/informers/apiregistration"
 	clever "github.com/caicloud/clientset/informers/clever"
@@ -24,10 +25,12 @@ import (
 	orchestration "github.com/caicloud/clientset/informers/orchestration"
 	release "github.com/caicloud/clientset/informers/release"
 	resource "github.com/caicloud/clientset/informers/resource"
+	servicemesh "github.com/caicloud/clientset/informers/servicemesh"
 	serving "github.com/caicloud/clientset/informers/serving"
 	tenant "github.com/caicloud/clientset/informers/tenant"
+	workload "github.com/caicloud/clientset/informers/workload"
 	kubernetes "github.com/caicloud/clientset/kubernetes"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	informers "k8s.io/client-go/informers"
 	internalinterfaces "k8s.io/client-go/informers/internalinterfaces"
 )
@@ -90,6 +93,7 @@ func NewSharedInformerFactoryWithOptions(client kubernetes.Interface, defaultRes
 type SharedInformerFactory interface {
 	informers.SharedInformerFactory
 
+	Alerting() alerting.Interface
 	Apiextensions() apiextensions.Interface
 	Apiregistration() apiregistration.Interface
 	Clever() clever.Interface
@@ -105,8 +109,14 @@ type SharedInformerFactory interface {
 	Orchestration() orchestration.Interface
 	Release() release.Interface
 	Resource() resource.Interface
+	Servicemesh() servicemesh.Interface
 	Serving() serving.Interface
 	Tenant() tenant.Interface
+	Workload() workload.Interface
+}
+
+func (f *sharedInformerFactory) Alerting() alerting.Interface {
+	return alerting.New(f, f.namespace, f.tweakListOptions)
 }
 
 func (f *sharedInformerFactory) Apiextensions() apiextensions.Interface {
@@ -169,10 +179,18 @@ func (f *sharedInformerFactory) Resource() resource.Interface {
 	return resource.New(f, f.namespace, f.tweakListOptions)
 }
 
+func (f *sharedInformerFactory) Servicemesh() servicemesh.Interface {
+	return servicemesh.New(f, f.namespace, f.tweakListOptions)
+}
+
 func (f *sharedInformerFactory) Serving() serving.Interface {
 	return serving.New(f, f.namespace, f.tweakListOptions)
 }
 
 func (f *sharedInformerFactory) Tenant() tenant.Interface {
 	return tenant.New(f, f.namespace, f.tweakListOptions)
+}
+
+func (f *sharedInformerFactory) Workload() workload.Interface {
+	return workload.New(f, f.namespace, f.tweakListOptions)
 }

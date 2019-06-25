@@ -26,6 +26,8 @@ type Interface interface {
 	MachineAutoScalingGroups() MachineAutoScalingGroupInformer
 	// Networks returns a NetworkInformer.
 	Networks() NetworkInformer
+	// NodeClaims returns a NodeClaimInformer.
+	NodeClaims() NodeClaimInformer
 	// NodeLocalStorages returns a NodeLocalStorageInformer.
 	NodeLocalStorages() NodeLocalStorageInformer
 	// RequirementGaps returns a RequirementGapInformer.
@@ -88,6 +90,11 @@ func (v *version) MachineAutoScalingGroups() MachineAutoScalingGroupInformer {
 // Networks returns a NetworkInformer.
 func (v *version) Networks() NetworkInformer {
 	return &networkInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// NodeClaims returns a NodeClaimInformer.
+func (v *version) NodeClaims() NodeClaimInformer {
+	return &nodeClaimInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // NodeLocalStorages returns a NodeLocalStorageInformer.

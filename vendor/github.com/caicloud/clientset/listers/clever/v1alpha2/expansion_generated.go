@@ -18,6 +18,14 @@ type MLNeuronListerExpansion interface{}
 // MLNeuronNamespaceLister.
 type MLNeuronNamespaceListerExpansion interface{}
 
+// MLNeuronTaskOwnerListerExpansion allows custom methods to be added to
+// MLNeuronTaskOwnerLister.
+type MLNeuronTaskOwnerListerExpansion interface{}
+
+// MLNeuronTaskOwnerNamespaceListerExpansion allows custom methods to be added to
+// MLNeuronTaskOwnerNamespaceLister.
+type MLNeuronTaskOwnerNamespaceListerExpansion interface{}
+
 // ProjectListerExpansion allows custom methods to be added to
 // ProjectLister.
 type ProjectListerExpansion interface{}
