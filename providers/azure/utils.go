@@ -9,7 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-01-01/network"
 	"github.com/Azure/go-autorest/autorest/to"
 	log "github.com/zoumo/logdog"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
 	core "github.com/caicloud/loadbalancer-provider/core/provider"
@@ -129,7 +129,7 @@ func getNetworkInterfacesFromVM(c *client.Client, machine *machineInfo) ([]strin
 	}
 
 	if vm.NetworkProfile.NetworkInterfaces == nil || len(*vm.NetworkProfile.NetworkInterfaces) == 0 {
-		return nil, fmt.Errorf("vm %s has no networkInterfaces", vm.Name)
+		return nil, fmt.Errorf("vm %s has no networkInterfaces", to.String(vm.Name))
 	}
 	networkInterfaces := make([]string, 0, len(*vm.NetworkProfile.NetworkInterfaces))
 	for _, networkInterface := range *vm.NetworkProfile.NetworkInterfaces {

@@ -233,7 +233,7 @@ func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]s
 
 func getPublicIPAddress(c *client.Client, lb *lbapi.LoadBalancer) (string, error) {
 	if lb != nil && lb.Spec.Providers.Azure != nil &&
-		lb.Spec.Providers.Azure != nil && lb.Spec.Providers.Azure.IPAddressProperties.Public != nil {
+		lb.Spec.Providers.Azure.IPAddressProperties.Public != nil {
 		public := lb.Spec.Providers.Azure.IPAddressProperties.Public
 		group, name, err := getGroupAndResourceNameFromID(to.String(public.PublicIPAddressID), azurePublicIPAddresses)
 		if err != nil {
