@@ -66,7 +66,7 @@ func getNeighbors(ip string, nodes []string) (neighbors []string) {
 // getPriority returns the priority of one node using the
 // IP address as key. It starts in 100
 func getNodePriority(ip string, nodes []string) int {
-	return 100 + stringSlice(nodes).pos(ip)
+	return 100 + stringSlice(nodes).pos(ip)*60
 }
 
 func checksum(filename string) (string, error) {

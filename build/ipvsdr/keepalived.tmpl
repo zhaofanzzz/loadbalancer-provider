@@ -1,37 +1,45 @@
-{{ $iface := .iface }}{{ $netmask := .netmask }}{{ $acceptMark := .acceptMark }}
+{{ $lenInst := len .instances }}
 
 global_defs {
   vrrp_version 3
   vrrp_iptables {{ .iptablesChain }}
 }
 
-vrrp_instance vips {
-  state BACKUP
-  interface {{ $iface }}
-  virtual_router_id {{ .vrid }}
-  priority {{ .priority }}
+{{ if gt $lenInst 1 }}
+vrrp_sync_group sync_group {
+  group { {{ range $inst := .instances }}
+    inst_{{ $inst.Interface}} {{ end }}
+  }
+}
+{{ end }}
+
+{{ range $inst := .instances }}
+vrrp_instance inst_{{ $inst.Name}} {
+  state {{ $inst.State }}
+  interface {{ $inst.Interface }}
+  virtual_router_id {{ $inst.Vrid }}
+  priority {{ $inst.Priority }}
   nopreempt
   advert_int 1
 
   track_interface {
-    {{ $iface }}
+    {{ $inst.Interface }}
   }
 
-  {{ if .useUnicast }}
-  unicast_src_ip {{ .myIP }}
-  unicast_peer { {{ range .neighbors }}
-    {{ .IP }}{{ end }}
+  unicast_src_ip {{ $inst.MyIP }}
+  unicast_peer { {{ range $inst.AllIPs }}
+    {{ if ne $inst.MyIP . }} {{ . }}{{ end }} {{end }}
   }
-  {{ end }}
 
-  virtual_ipaddress { {{ range .vips }}
-    {{ . }}{{ end }}
+  virtual_ipaddress {
+    {{ $inst.VIP }}
   }
 }
+{{ end }}
 
 # TCP
 {{ range $i, $vs := .vss }}
-virtual_server fwmark {{ $acceptMark }} {
+virtual_server fwmark {{ $vs.AcceptMark }} {
   delay_loop 5
   lb_algo {{ $vs.Scheduler }}
   lb_kind DR
@@ -52,7 +60,7 @@ virtual_server fwmark {{ $acceptMark }} {
 
 # UDP
 {{ range $i, $vs := .vss }}
-virtual_server fwmark {{ $acceptMark }} {
+virtual_server fwmark {{ $vs.AcceptMark }} {
   delay_loop 5
   lb_algo {{ $vs.Scheduler }}
   lb_kind DR

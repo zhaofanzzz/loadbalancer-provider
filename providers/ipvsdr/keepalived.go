@@ -18,13 +18,11 @@ package ipvsdr
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"syscall"
 	"text/template"
 	"time"
 
-	corenet "github.com/caicloud/loadbalancer-provider/core/pkg/net"
 	"github.com/caicloud/loadbalancer-provider/pkg/execd"
 	log "github.com/zoumo/logdog"
 
@@ -44,28 +42,34 @@ const (
 
 type ipmac struct {
 	IP  string
-	MAC net.HardwareAddr
+	MAC string
+}
+type vrrpInstance struct {
+	Name      string
+	State     string
+	Vrid      int
+	Priority  int
+	Interface string   //TODO
+	MyIP      string   //TODO
+	AllIPs    []string //TODO
+	VIP       string
 }
 
 type virtualServer struct {
+	AcceptMark int
 	VIP        string
 	Scheduler  string
 	RealServer []string
 }
 
 type keepalived struct {
-	useUnicast bool
-	nodeIP     net.IP
-	nodeInfo   *corenet.Interface
-	ipt        iptables.Interface
-	cmd        *execd.D
-	tmpl       *template.Template
-	vips       []string
+	ipt  iptables.Interface
+	cmd  *execd.D
+	tmpl *template.Template
+	vis  []*vrrpInstance
 }
 
-// WriteCfg creates a new keepalived configuration file.
-// In case of an error with the generation it returns the error
-func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priority int, vrid int) error {
+func (k *keepalived) UpdateConfig(vis []*vrrpInstance, vss []*virtualServer) error {
 	w, err := os.Create(keepalivedCfg)
 	if err != nil {
 		return err
@@ -74,33 +78,14 @@ func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priori
 
 	log.Infof("Updating keealived config")
 	// save vips for release when shutting down
-	k.vips = getVIPs(vss)
 
+	k.vis = vis
 	conf := make(map[string]interface{})
 	conf["iptablesChain"] = iptablesChain
-	conf["iface"] = k.nodeInfo.Name
-	conf["myIP"] = k.nodeIP.String()
-	conf["netmask"] = 32 // useless
+	conf["instances"] = vis
 	conf["vss"] = vss
-	conf["vips"] = k.vips
-	conf["neighbors"] = neighbors
-	conf["priority"] = priority
-	conf["useUnicast"] = k.useUnicast
-	conf["vrid"] = vrid
-	conf["acceptMark"] = acceptMark
 
 	return k.tmpl.Execute(w, conf)
-}
-
-// getVIPs returns a list of the virtual IP addresses to be used in keepalived
-// without duplicates (a service can use more than one port)
-func getVIPs(svcs []virtualServer) []string {
-	result := []string{}
-	for _, svc := range svcs {
-		result = appendIfMissing(result, svc.VIP)
-	}
-
-	return result
 }
 
 // Start starts a keepalived process in foreground.
@@ -160,8 +145,8 @@ func (k *keepalived) Reload() error {
 
 // Stop stop keepalived process
 func (k *keepalived) Stop() {
-	for _, vip := range k.vips {
-		k.removeVIP(vip)
+	for _, vi := range k.vis {
+		k.removeVIP(vi)
 	}
 
 	log.Info("flush iptables chain", log.Fields{"table": iptables.TableFilter, "chain": iptablesChain})
@@ -178,9 +163,9 @@ func (k *keepalived) Stop() {
 
 }
 
-func (k *keepalived) removeVIP(vip string) error {
-	log.Info("removing configured VIP %v from dev %v", vip, k.nodeInfo.Name)
-	out, err := k8sexec.New().Command("ip", "addr", "del", vip+"/32", "dev", k.nodeInfo.Name).CombinedOutput()
+func (k *keepalived) removeVIP(vi *vrrpInstance) error {
+	log.Info("removing configured VIP %v from dev %v", vi.VIP, vi.Interface)
+	out, err := k8sexec.New().Command("ip", "addr", "del", vi.VIP+"/32", "dev", vi.Interface).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error reloading keepalived: %v\n%s", err, out)
 	}

@@ -83,15 +83,6 @@ func Run(opts *Options) error {
 		return fmt.Errorf("no ipvsdr spec specified")
 	}
 
-	labels := []string{opts.NodeIPLabel}
-	annotations := []string{opts.NodeIPAnnotation}
-
-	nodeIP, err := corenode.GetNodeIPForPod(clientset, opts.PodNamespace, opts.PodName, labels, annotations)
-	if err != nil {
-		log.Fatal("Can not get node ip", log.Fields{"err": err})
-		return err
-	}
-
 	err = loadIPVSModule()
 	if err != nil {
 		log.Error("load ipvs module error", log.Fields{"err": err})
@@ -104,7 +95,13 @@ func Run(opts *Options) error {
 		return err
 	}
 
-	ipvsdr, err := ipvsdr.NewIpvsdrProvider(nodeIP, lb, opts.Unicast, labels, annotations)
+	nodeName, err := corenode.GetNodeNameForPod(clientset, opts.PodNamespace, opts.PodName)
+	if err != nil {
+		log.Fatal("Can not get node name", log.Fields{"err": err})
+		return err
+	}
+
+	ipvsdr, err := ipvsdr.NewIpvsdrProvider(nodeName, lb, opts.Unicast)
 	if err != nil {
 		log.Error("Create ipvsdr provider error", log.Fields{"err": err})
 		return err

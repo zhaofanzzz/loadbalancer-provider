@@ -19,6 +19,7 @@ func ValidateLoadBalancer(lb *LoadBalancer) error {
 
 // ValidateProviders validate providers spec in loadbalancer
 func ValidateProviders(spec ProvidersSpec) error {
+	// TODO : validate keepalived provider
 	if spec.Ipvsdr != nil {
 		ipvsdr := spec.Ipvsdr
 		if net.ParseIP(ipvsdr.VIP) == nil {

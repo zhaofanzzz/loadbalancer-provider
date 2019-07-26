@@ -48,3 +48,16 @@ func GetNodeIPForPod(client kubernetes.Interface, podNamespace, podName string, 
 
 	return ip, nil
 }
+
+// GetNodeNameForPod returns the node ip where the pod is located
+func GetNodeNameForPod(client kubernetes.Interface, podNamespace, podName string) (string, error) {
+	if podName == "" || podNamespace == "" {
+		return "", fmt.Errorf("Please check the manifest (for missing POD_NAME or POD_NAMESPACE env variables)")
+	}
+
+	pod, err := client.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	return pod.Spec.NodeName, nil
+}

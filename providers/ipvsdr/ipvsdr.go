@@ -18,9 +18,9 @@ package ipvsdr
 
 import (
 	"fmt"
-	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
@@ -64,8 +64,7 @@ var (
 
 // IpvsdrProvider ...
 type IpvsdrProvider struct {
-	nodeIP            net.IP
-	nodeInfo          *corenet.Interface
+	nodeName          string
 	reloadRateLimiter flowcontrol.RateLimiter
 	keepalived        *keepalived
 	ipvsCacheChecker  *ipvsCacheCleaner
@@ -73,40 +72,28 @@ type IpvsdrProvider struct {
 	sysctlDefault     map[string]string
 	ipt               iptables.Interface
 	cfgMD5            string
-	vip               string
-	nodeIPLabels      []string
-	nodeIPAnnotations []string
+	// TODO: vip should not be a global variable here.
+	// But it's not an appropriate to refactor it and the iptables rule
+	vip string
 }
 
 // NewIpvsdrProvider creates a new ipvs-dr LoadBalancer Provider.
-func NewIpvsdrProvider(nodeIP net.IP, lb *lbapi.LoadBalancer, unicast bool, labels, annotations []string) (*IpvsdrProvider, error) {
-	nodeInfo, err := corenet.InterfaceByIP(nodeIP.String())
-	if err != nil {
-		log.Error("get node info err", log.Fields{"err": err})
-		return nil, err
-	}
+func NewIpvsdrProvider(nodeName string, lb *lbapi.LoadBalancer, unicast bool) (*IpvsdrProvider, error) {
 
 	execer := k8sexec.New()
 	dbus := utildbus.New()
 	iptInterface := iptables.New(execer, dbus, iptables.ProtocolIpv4)
 
 	ipvs := &IpvsdrProvider{
-		nodeIP:            nodeIP,
-		nodeInfo:          nodeInfo,
+		nodeName:          nodeName,
 		reloadRateLimiter: flowcontrol.NewTokenBucketRateLimiter(10.0, 10),
 		vip:               lb.Spec.Providers.Ipvsdr.VIP,
 		sysctlDefault:     make(map[string]string, 0),
 		ipt:               iptInterface,
-		nodeIPLabels:      labels,
-		nodeIPAnnotations: annotations,
 	}
 
-	// neighbors := getNodeNeighbors(nodeInfo, clusterNodes)
 	ipvs.keepalived = &keepalived{
-		nodeIP:     nodeIP,
-		nodeInfo:   nodeInfo,
-		useUnicast: unicast,
-		ipt:        iptInterface,
+		ipt: iptInterface,
 	}
 
 	ipvs.ipvsCacheChecker = &ipvsCacheCleaner{
@@ -114,7 +101,7 @@ func NewIpvsdrProvider(nodeIP net.IP, lb *lbapi.LoadBalancer, unicast bool, labe
 		stopCh: make(chan struct{}),
 	}
 
-	err = ipvs.keepalived.loadTemplate()
+	err := ipvs.keepalived.loadTemplate()
 	if err != nil {
 		return nil, err
 	}
@@ -158,46 +145,160 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 		return nil
 	}
 
-	resolvedNodes := p.getNodesIP(lb.Spec.Nodes.Names)
-	if len(resolvedNodes) == 0 {
-		log.Error("Cannot get any valid node IP")
-		return nil
-	}
-
-	// All the resolvedNodes MUST be in the same L2 network
-	// After resolving, we will figure out which nodes can not be reached
-	unresolvedNeighbors := getNeighbors(p.nodeIP.String(), resolvedNodes)
-	resolvedNeighbors := p.resolveNeighbors(unresolvedNeighbors)
-	if len(unresolvedNeighbors) > 0 && len(resolvedNeighbors) == 0 {
-		log.Warn("Cannot get any valid neighbors MAC")
-	}
-
-	// rebuild resolvedNodes
-	resolvedNodes = []string{p.nodeIP.String()}
-	for _, n := range resolvedNeighbors {
-		resolvedNodes = append(resolvedNodes, n.IP)
-	}
-	// Important!!
-	sort.Strings(resolvedNodes)
-
-	svc := virtualServer{
-		VIP:        lb.Spec.Providers.Ipvsdr.VIP,
-		Scheduler:  string(lb.Spec.Providers.Ipvsdr.Scheduler),
-		RealServer: resolvedNodes,
-	}
-
-	err = p.keepalived.UpdateConfig(
-		[]virtualServer{svc},
-		resolvedNeighbors,
-		getNodePriority(p.nodeIP.String(), resolvedNodes),
-		*lb.Status.ProvidersStatuses.Ipvsdr.Vrid,
-	)
+	_, iface, resolvedNeighbors, err := p.getIPs(lb.Spec.Nodes.Names, lb.Spec.Providers.Ipvsdr.Bind, lbapi.ActiveActiveHA)
 	if err != nil {
-		log.Error("error update keealived config", log.Fields{"err": err})
 		return err
 	}
 
-	p.ensureIptablesMark(resolvedNeighbors, tcpPorts, udpPorts)
+	// resolvedNeighbors do not contains self
+	p.ensureIptablesMark(resolvedNeighbors, iface, tcpPorts, udpPorts)
+
+	err = p.onUpdateKeepalived(lb)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func convertToKeepalivedProvider(ipvs *lbapi.IpvsdrProvider) *lbapi.KeepalivedProvider {
+	kl := lbapi.KeepalivedProvider{
+		VIP:       ipvs.VIP,
+		Scheduler: ipvs.Scheduler,
+		Bind:      ipvs.Bind,
+		HAMode:    lbapi.ActiveActiveHA,
+	}
+	return &kl
+}
+
+func (p *IpvsdrProvider) getIPs(nodes []string, bind *lbapi.KeepalivedBind, haMode lbapi.HAMode) (string, string, []ipmac, error) {
+	var err error
+	var ipmacs []ipmac
+	nodeIPs := p.getNodeNetworks(nodes, bind)
+	if len(nodeIPs) == 0 {
+		log.Error("Cannot get any valid node IP")
+		return "", "", ipmacs, err
+	}
+	myIP, ok := nodeIPs[p.nodeName]
+	if !ok {
+		log.Error("Cannot get self node IP")
+		return "", "", ipmacs, fmt.Errorf("cannot get self node ip")
+	}
+	iface, err := corenet.InterfaceByIP(myIP)
+	if err != nil {
+		log.Errorf("Cannot get interface by ip %s", myIP)
+		return "", "", ipmacs, err
+	}
+
+	for _, node := range nodes {
+		ip, ok := nodeIPs[node]
+		if !ok {
+			continue
+		}
+		var mac string
+		if node != p.nodeName {
+			//  if active-active(dr mode), we should ensure all ip in same l2 network
+			if haMode == lbapi.ActiveActiveHA {
+				var err error
+				mac, err = p.resolveNeighbor(ip, iface.Name)
+				if err != nil {
+					log.Errorf("Cannot get any valid neighbors MAC for %s on %s", ip, iface.Name)
+					continue
+				}
+			}
+		}
+		ipmacs = append(ipmacs, ipmac{ip, mac})
+	}
+
+	return myIP, iface.Name, ipmacs, nil
+
+}
+
+func (p *IpvsdrProvider) getKeepalivedConfigBlock(nodes []string, kl *lbapi.KeepalivedProvider, priority, vrid int) (*vrrpInstance, *virtualServer, error) {
+
+	myIP, iface, ipmacs, err := p.getIPs(nodes, kl.Bind, kl.HAMode)
+
+	if len(ipmacs) == 0 && len(nodes) > 1 {
+		log.Warn("Cannot get any valid neighbors MAC")
+	}
+
+	var allIPs []string
+	for _, ipmac := range ipmacs {
+		allIPs = append(allIPs, ipmac.IP)
+	}
+
+	state := "BACKUP"
+	if kl.HAMode == lbapi.ActivePassiveHA {
+		if nodes[len(nodes)-1] == p.nodeName {
+			state = "MASTER"
+		}
+	}
+
+	name := iface
+	name = strings.Replace(name, ".", "_", -1)
+	name = strings.Replace(name, "-", "_", -1)
+	vi := &vrrpInstance{
+		Name:      name,
+		State:     state,
+		Vrid:      vrid,
+		Priority:  priority,
+		Interface: iface,
+		MyIP:      myIP,
+		AllIPs:    allIPs,
+		VIP:       kl.VIP,
+	}
+
+	var vs *virtualServer
+	if kl.HAMode == lbapi.ActiveActiveHA {
+		vs = &virtualServer{
+			AcceptMark: acceptMark,
+			VIP:        kl.VIP,
+			Scheduler:  string(kl.Scheduler),
+			RealServer: allIPs,
+		}
+	}
+	return vi, vs, err
+}
+
+func (p *IpvsdrProvider) onUpdateKeepalived(lb *lbapi.LoadBalancer) error {
+
+	nodes := make([]string, len(lb.Spec.Nodes.Names))
+	copy(nodes, lb.Spec.Nodes.Names)
+	sort.Strings(nodes)
+
+	prority := getNodePriority(p.nodeName, nodes)
+	//TODO check
+	vrrid := *lb.Status.ProvidersStatuses.Ipvsdr.Vrid
+	ipvs := lb.Spec.Providers.Ipvsdr
+
+	vi, vs, err := p.getKeepalivedConfigBlock(nodes, convertToKeepalivedProvider(ipvs), prority, vrrid)
+	if err != nil {
+		log.Errorf("Error on getKeepalivedConfigBlock for ipvs provider %v", err)
+		return err
+	}
+
+	vis := []*vrrpInstance{vi}
+	vss := []*virtualServer{vs}
+
+	for _, spec := range ipvs.Slaves {
+		if spec.HAMode == lbapi.ActiveActiveHA {
+			log.Warnf("skip one slave provider %s because only ActiveActive Mode is supported for now", spec.VIP)
+			// if want to support multple ActiveActive providers, acceptMark should be better designed.
+			continue
+		}
+
+		vrrid = vrrid + 1
+		vi, vs, err := p.getKeepalivedConfigBlock(nodes, &spec, prority, vrrid)
+		if err != nil {
+			continue
+		}
+		vis = append(vis, vi)
+		if vs != nil {
+			vss = append(vss, vs)
+		}
+	}
+
+	err = p.keepalived.UpdateConfig(vis, vss)
 
 	// check md5
 	md5, err := checksum(keepalivedCfg)
@@ -278,26 +379,27 @@ func (p *IpvsdrProvider) SetListers(lister core.StoreLister) {
 	p.storeLister = lister
 }
 
-func (p *IpvsdrProvider) getNodesIP(names []string) []string {
-	ips := make([]string, 0)
-	if names == nil {
-		return ips
-	}
+func (p *IpvsdrProvider) getNodeNetworks(nodes []string, bind *lbapi.KeepalivedBind) map[string]string {
+	res := make(map[string]string)
 
-	for _, name := range names {
+	for _, name := range nodes {
 		node, err := p.storeLister.Node.Get(name)
 		if err != nil {
 			continue
 		}
-		ip, err := nodeutil.GetNodeHostIP(node, p.nodeIPLabels, p.nodeIPAnnotations)
+
+		ann := []string{}
+		if bind != nil && bind.NodeIPAnnotation != "" {
+			ann = append(ann, bind.NodeIPAnnotation)
+		}
+		ip, err := nodeutil.GetNodeHostIP(node, ann, ann)
 		if err != nil {
 			log.Errorf("Error resolve ip of node %v", name)
 			continue
 		}
-		ips = append(ips, ip.String())
+		res[name] = ip.String()
 	}
-
-	return ips
+	return res
 }
 
 func (p *IpvsdrProvider) ensureChain() {
@@ -382,39 +484,33 @@ func (p *IpvsdrProvider) removeLoopbackVIP() error {
 	return nil
 }
 
-func (p *IpvsdrProvider) resolveNeighbors(neighbors []string) []ipmac {
-	resolvedNeighbors := make([]ipmac, 0)
+func (p *IpvsdrProvider) resolveNeighbor(neighbor string, iface string) (string, error) {
 
-	for _, neighbor := range neighbors {
-		hwAddr, err := arp.Resolve(p.nodeInfo.Name, neighbor)
-		if err != nil {
-			log.Errorf("failed to resolve hardware address for %v", neighbor)
-			continue
-		}
-		resolvedNeighbors = append(resolvedNeighbors, ipmac{IP: neighbor, MAC: hwAddr})
+	hwAddr, err := arp.Resolve(iface, neighbor)
+	if err != nil {
+		log.Errorf("failed to resolve hardware address for %v", neighbor)
+		return "", err
 	}
 
-	log.Debugf("resolved neighbors macs: %v", resolvedNeighbors)
-
-	return resolvedNeighbors
+	return hwAddr.String(), nil
 }
 
-func (p *IpvsdrProvider) appendIptablesMark(protocol string, mark int, mac string, ports []string) (bool, error) {
-	return p.setIptablesMark(iptables.Append, protocol, mark, mac, ports)
+func (p *IpvsdrProvider) appendIptablesMark(protocol, iface string, mark int, mac string, ports []string) (bool, error) {
+	return p.setIptablesMark(iptables.Append, protocol, iface, mark, mac, ports)
 }
 
-func (p *IpvsdrProvider) prependIptablesMark(protocol string, mark int, mac string, ports []string) (bool, error) {
-	return p.setIptablesMark(iptables.Prepend, protocol, mark, mac, ports)
+func (p *IpvsdrProvider) prependIptablesMark(protocol, iface string, mark int, mac string, ports []string) (bool, error) {
+	return p.setIptablesMark(iptables.Prepend, protocol, iface, mark, mac, ports)
 }
 
-func (p *IpvsdrProvider) setIptablesMark(position iptables.RulePosition, protocol string, mark int, mac string, ports []string) (bool, error) {
+func (p *IpvsdrProvider) setIptablesMark(position iptables.RulePosition, protocol, iface string, mark int, mac string, ports []string) (bool, error) {
 	if len(ports) == 0 {
-		return p.ipt.EnsureRule(position, tableMangle, iptablesChain, p.buildIptablesArgs(protocol, mark, mac, "")...)
+		return p.ipt.EnsureRule(position, tableMangle, iptablesChain, p.buildIptablesArgs(protocol, iface, mark, mac, "")...)
 	}
 	// iptables: too many ports specified
 	// multiport accept max ports number may be 15
 	for _, port := range ports {
-		_, err := p.ipt.EnsureRule(position, tableMangle, iptablesChain, p.buildIptablesArgs(protocol, mark, mac, port)...)
+		_, err := p.ipt.EnsureRule(position, tableMangle, iptablesChain, p.buildIptablesArgs(protocol, iface, mark, mac, port)...)
 		if err != nil {
 			return false, err
 		}
@@ -422,9 +518,9 @@ func (p *IpvsdrProvider) setIptablesMark(position iptables.RulePosition, protoco
 	return true, nil
 }
 
-func (p *IpvsdrProvider) buildIptablesArgs(protocol string, mark int, mac string, port string) []string {
+func (p *IpvsdrProvider) buildIptablesArgs(protocol, iface string, mark int, mac string, port string) []string {
 	args := make([]string, 0)
-	args = append(args, "-i", p.nodeInfo.Name, "-d", p.vip, "-p", protocol)
+	args = append(args, "-i", iface, "-d", p.vip, "-p", protocol)
 	if port != "" {
 		args = append(args, "-m", "multiport", "--dports", port)
 	}
@@ -432,10 +528,11 @@ func (p *IpvsdrProvider) buildIptablesArgs(protocol string, mark int, mac string
 		args = append(args, "-m", "mac", "--mac-source", mac)
 	}
 	args = append(args, "-j", "MARK", "--set-xmark", fmt.Sprintf("%s/%s", strconv.Itoa(mark), mask))
+	log.Warnf("build iptables args %v", args)
 	return args
 }
 
-func (p *IpvsdrProvider) ensureIptablesMark(neighbors []ipmac, tcpPorts, udpPorts []string) {
+func (p *IpvsdrProvider) ensureIptablesMark(neighbors []ipmac, iface string, tcpPorts, udpPorts []string) {
 	log.Info("ensure iptables rules")
 
 	// flush all rules
@@ -449,26 +546,26 @@ func (p *IpvsdrProvider) ensureIptablesMark(neighbors []ipmac, tcpPorts, udpPort
 	// make sure that all traffics which come from the neighbors will be marked with 0
 	// and than lvs will ignore it
 	for _, neighbor := range neighbors {
-		_, err := p.appendIptablesMark("tcp", dropMark, neighbor.MAC.String(), nil)
+		_, err := p.appendIptablesMark("tcp", iface, dropMark, neighbor.MAC, nil)
 		if err != nil {
-			log.Error("failed to ensure iptables tcp rule for", log.Fields{"ip": neighbor.IP, "mac": neighbor.MAC.String(), "mark": dropMark, "err": err})
+			log.Errorf("failed to ensure iptables tcp rule, iface:%s, ip: %v, mac: %v, mark: %v, err: %v", iface, neighbor.IP, neighbor.MAC, dropMark, err)
 		}
-		_, err = p.appendIptablesMark("udp", dropMark, neighbor.MAC.String(), nil)
+		_, err = p.appendIptablesMark("udp", iface, dropMark, neighbor.MAC, nil)
 		if err != nil {
-			log.Error("failed to ensure iptables udp rule for", log.Fields{"ip": neighbor.IP, "mac": neighbor.MAC.String(), "mark": dropMark, "err": err})
+			log.Error("failed to ensure iptables udp rule for", log.Fields{"ip": neighbor.IP, "mac": neighbor.MAC, "mark": dropMark, "err": err})
 		}
 	}
 
 	// this two rules must be prepend before mark 0
 	// they mark all matched tcp and udp traffics with 1
 	if len(tcpPorts) > 0 {
-		_, err := p.prependIptablesMark("tcp", acceptMark, "", tcpPorts)
+		_, err := p.prependIptablesMark("tcp", iface, acceptMark, "", tcpPorts)
 		if err != nil {
 			log.Error("error ensure iptables tcp rule for", log.Fields{"tcpPorts": tcpPorts, "err": err})
 		}
 	}
 	if len(udpPorts) > 0 {
-		_, err := p.prependIptablesMark("udp", acceptMark, "", udpPorts)
+		_, err := p.prependIptablesMark("udp", iface, acceptMark, "", udpPorts)
 		if err != nil {
 			log.Error("error ensure iptables udp rule for", log.Fields{"udpPorts": udpPorts, "err": err})
 		}
