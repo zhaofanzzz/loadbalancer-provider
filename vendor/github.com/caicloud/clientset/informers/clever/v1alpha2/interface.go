@@ -16,6 +16,8 @@ type Interface interface {
 	Flavors() FlavorInformer
 	// MLNeurons returns a MLNeuronInformer.
 	MLNeurons() MLNeuronInformer
+	// MLNeuronTaskOwners returns a MLNeuronTaskOwnerInformer.
+	MLNeuronTaskOwners() MLNeuronTaskOwnerInformer
 	// Projects returns a ProjectInformer.
 	Projects() ProjectInformer
 }
@@ -39,6 +41,11 @@ func (v *version) Flavors() FlavorInformer {
 // MLNeurons returns a MLNeuronInformer.
 func (v *version) MLNeurons() MLNeuronInformer {
 	return &mLNeuronInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// MLNeuronTaskOwners returns a MLNeuronTaskOwnerInformer.
+func (v *version) MLNeuronTaskOwners() MLNeuronTaskOwnerInformer {
+	return &mLNeuronTaskOwnerInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Projects returns a ProjectInformer.

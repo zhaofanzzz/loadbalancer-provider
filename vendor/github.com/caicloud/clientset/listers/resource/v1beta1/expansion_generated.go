@@ -34,6 +34,10 @@ type MachineAutoScalingGroupListerExpansion interface{}
 // NetworkLister.
 type NetworkListerExpansion interface{}
 
+// NodeClaimListerExpansion allows custom methods to be added to
+// NodeClaimLister.
+type NodeClaimListerExpansion interface{}
+
 // NodeLocalStorageListerExpansion allows custom methods to be added to
 // NodeLocalStorageLister.
 type NodeLocalStorageListerExpansion interface{}

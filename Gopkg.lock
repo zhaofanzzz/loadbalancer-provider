@@ -42,7 +42,7 @@
 
 [[projects]]
   branch = "release-1.12"
-  digest = "1:bd8705d4f8f3be8ff3ac84088d9047fd84a10915d95465ebea239a4eb1496727"
+  digest = "1:18cede42e5ff46b89da2cc858c2d4ff411939dbbedc4195ae2d0af7f6a5ee883"
   name = "github.com/caicloud/clientset"
   packages = [
     "informers",
@@ -149,7 +149,7 @@
     "util/syncqueue",
   ]
   pruneopts = "NUT"
-  revision = "59caab7486975645c39774eca2515065f7d2fd8c"
+  revision = "20d198e0c5f89e2568453d89f455b0234107eaa7"
 
 [[projects]]
   digest = "1:65b0d980b428a6ad4425f2df4cd5410edd81f044cf527bd1c345368444649e58"
@@ -892,6 +892,14 @@
   pruneopts = "NUT"
   revision = "e8846c1d7e7e632d4bd5ed46160eff3dc4c993c5"
   version = "v1.7.16"
+
+[[projects]]
+  digest = "1:84a8609383bec11b71d52dd813f33f1d16614b91966940bdc2aa79bea864fa25"
+  name = "sigs.k8s.io/controller-runtime"
+  packages = ["pkg/runtime/scheme"]
+  pruneopts = "NUT"
+  revision = "f6f0bc9611363b43664d08fb097ab13243ef621d"
+  version = "v0.1.9"
 
 [solve-meta]
   analyzer-name = "dep"

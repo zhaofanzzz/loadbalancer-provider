@@ -72,6 +72,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Clever().V1alpha2().Flavors().Informer()}, nil
 	case v1alpha2.SchemeGroupVersion.WithResource("mlneurons"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Clever().V1alpha2().MLNeurons().Informer()}, nil
+	case v1alpha2.SchemeGroupVersion.WithResource("mlneurontaskowners"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Clever().V1alpha2().MLNeuronTaskOwners().Informer()}, nil
 	case v1alpha2.SchemeGroupVersion.WithResource("projects"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Clever().V1alpha2().Projects().Informer()}, nil
 
@@ -152,6 +154,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1beta1().MachineAutoScalingGroups().Informer()}, nil
 	case resourcev1beta1.SchemeGroupVersion.WithResource("networks"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1beta1().Networks().Informer()}, nil
+	case resourcev1beta1.SchemeGroupVersion.WithResource("nodeclaims"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1beta1().NodeClaims().Informer()}, nil
 	case resourcev1beta1.SchemeGroupVersion.WithResource("nodelocalstorages"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Resource().V1beta1().NodeLocalStorages().Informer()}, nil
 	case resourcev1beta1.SchemeGroupVersion.WithResource("requirementgaps"):

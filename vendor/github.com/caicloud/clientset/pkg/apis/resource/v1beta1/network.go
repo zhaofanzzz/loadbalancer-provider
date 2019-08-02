@@ -57,6 +57,8 @@ type Subnet struct {
 	Gateway    net.IP `json:"gateway,omitempty"`
 	RangeStart net.IP `json:"rangeStart,omitempty"`
 	RangeEnd   net.IP `json:"rangeEnd,omitempty"`
+	// NodeCidrMaskSize define canal network node cidr mask size
+	NodeCidrMaskSize int `json:"nodeCidrMaskSize,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -20,6 +20,8 @@ type MachineAutoScalingGroupExpansion interface{}
 
 type NetworkExpansion interface{}
 
+type NodeClaimExpansion interface{}
+
 type NodeLocalStorageExpansion interface{}
 
 type RequirementGapExpansion interface{}
