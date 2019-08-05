@@ -21,6 +21,7 @@ type Client struct {
 	LoadBalancer     loadBalancerClient
 	VM               virtualMachineClient
 	NetworkInterface networkInterfaceClient
+	AppGateway       appGatewayClient
 	SecurityGroup    securityGroupClient
 	PublicIPAddress  publicIPAddressClient
 }
@@ -112,6 +113,64 @@ func (l *loadBalancerClientWrapper) Delete(ctx context.Context, resourceGroupNam
 	// if err != nil {
 	// 	return err
 	// }
+	return nil
+}
+
+type appGatewayClientWrapper struct {
+	network.ApplicationGatewaysClient
+}
+
+type appGatewayClient interface {
+	Get(ctx context.Context, resourceGroupName, appGatewayName string) (network.ApplicationGateway, error)
+	CreateOrUpdate(ctx context.Context, resourceGroupName, appGatewayName string, parameters network.ApplicationGateway) (network.ApplicationGateway, error)
+	Delete(ctx context.Context, resourceGroupName, appGatewayName string) error
+	ListAll(ctx context.Context) ([]network.ApplicationGateway, error)
+}
+
+func (l *appGatewayClientWrapper) ListAll(ctx context.Context) ([]network.ApplicationGateway, error) {
+	listPage, err := l.ApplicationGatewaysClient.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var re []network.ApplicationGateway
+	for listPage.NotDone() {
+		appGateways := listPage.Values()
+		if 0 != len(appGateways) {
+			re = append(re, appGateways...)
+		}
+
+		err = listPage.Next()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return re, nil
+}
+
+func (l *appGatewayClientWrapper) CreateOrUpdate(ctx context.Context,
+	resourceGroupName, appGatewayName string, parameters network.ApplicationGateway) (network.ApplicationGateway, error) {
+	future, e := l.ApplicationGatewaysClient.CreateOrUpdate(ctx, resourceGroupName, appGatewayName, parameters)
+	if e != nil {
+		return network.ApplicationGateway{}, e
+	}
+	e = future.WaitForCompletion(ctx, l.ApplicationGatewaysClient.Client)
+	if e != nil {
+		return network.ApplicationGateway{}, e
+	}
+	return future.Result(l.ApplicationGatewaysClient)
+}
+
+func (l *appGatewayClientWrapper) Delete(ctx context.Context, resourceGroupName, appGatewayName string) error {
+	_, err := l.ApplicationGatewaysClient.Delete(ctx, resourceGroupName, appGatewayName)
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
 	return nil
 }
 

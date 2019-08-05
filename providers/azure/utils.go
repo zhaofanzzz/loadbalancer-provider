@@ -50,6 +50,7 @@ const (
 	azureProviderStatusAndPublicIPAddressFormat = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s", "publicIPAddress":"%s"}}}}`
 
 	azureFinalizer = "finalizer.azure.loadbalancer.loadbalance.caicloud.io"
+	ingressFinalizer = "ingresses.extensions/azure-deletion"
 )
 
 // MachineInfo machine info
