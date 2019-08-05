@@ -305,7 +305,10 @@ func (p *GenericProvider) filterConfigMap(cm *v1.ConfigMap) bool {
 }
 
 func (p *GenericProvider) filterIngress(ig *v1beta1.Ingress) bool {
-	return ig.Annotations[IngressClass] != p.cfg.IngressClass
+	if ig.Annotations[IngressClass] == p.cfg.IngressClass {
+		return false
+	}
+	return true
 }
 
 func (p *GenericProvider) syncLoadBalancer(obj interface{}) error {
