@@ -360,6 +360,9 @@ func (l *AzureProvider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, pha
 		if serviceError != nil {
 			reason = serviceError.Code
 			message = serviceError.Message
+		} else {
+			reason = "Unknown"
+			message = result.Error()
 		}
 	case *client.ServiceError:
 		reason = t.Code
