@@ -16,21 +16,31 @@ limitations under the License.
 
 package provider
 
-import "k8s.io/api/core/v1"
+import (
+	"strconv"
+
+	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
+	v1 "k8s.io/api/core/v1"
+)
 
 var (
 	// ReservedTCPPorts represents the reserved tcp ports
-	ReservedTCPPorts = []string{"80", "443", "450", "451"}
+	ReservedTCPPorts = []string{"450", "451"}
 	// ReservedUDPPorts represents the reserved udp ports
 	ReservedUDPPorts = []string{}
 )
 
 // GetExportedPorts get exported ports from tcp and udp ConfigMap
-func GetExportedPorts(tcpcm, udpcm *v1.ConfigMap) ([]string, []string) {
+func GetExportedPorts(lb *lbapi.LoadBalancer, tcpcm, udpcm *v1.ConfigMap) ([]string, []string) {
 	tcpPorts := make([]string, 0)
 	udpPorts := make([]string, 0)
 	tcpPorts = append(tcpPorts, ReservedTCPPorts...)
 	udpPorts = append(udpPorts, ReservedUDPPorts...)
+
+	httpPort := GetHTTPPort(lb)
+	httpsPort := GetHTTPSPort(lb)
+
+	tcpPorts = append(tcpPorts, strconv.Itoa(httpPort), strconv.Itoa(httpsPort))
 
 	for port := range tcpcm.Data {
 		tcpPorts = append(tcpPorts, port)
@@ -40,4 +50,20 @@ func GetExportedPorts(tcpcm, udpcm *v1.ConfigMap) ([]string, []string) {
 	}
 	return tcpPorts, udpPorts
 
+}
+
+func GetHTTPPort(lb *lbapi.LoadBalancer) int {
+	p := 80
+	if lb.Spec.Proxy.HTTPPort > 1 && lb.Spec.Proxy.HTTPPort < 65535 {
+		p = lb.Spec.Proxy.HTTPPort
+	}
+	return p
+}
+
+func GetHTTPSPort(lb *lbapi.LoadBalancer) int {
+	p := 443
+	if lb.Spec.Proxy.HTTPSPort > 1 && lb.Spec.Proxy.HTTPSPort < 65535 {
+		p = lb.Spec.Proxy.HTTPSPort
+	}
+	return p
 }

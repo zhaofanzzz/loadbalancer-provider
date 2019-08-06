@@ -65,7 +65,7 @@ type keepalived struct {
 
 // WriteCfg creates a new keepalived configuration file.
 // In case of an error with the generation it returns the error
-func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priority int, vrid int) error {
+func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priority int, vrid int, httpPort int) error {
 	w, err := os.Create(keepalivedCfg)
 	if err != nil {
 		return err
@@ -88,6 +88,7 @@ func (k *keepalived) UpdateConfig(vss []virtualServer, neighbors []ipmac, priori
 	conf["useUnicast"] = k.useUnicast
 	conf["vrid"] = vrid
 	conf["acceptMark"] = acceptMark
+	conf["httpPort"] = httpPort
 
 	return k.tmpl.Execute(w, conf)
 }

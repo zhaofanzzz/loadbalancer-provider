@@ -150,7 +150,7 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 		return err
 	}
 
-	tcpPorts, udpPorts := core.GetExportedPorts(tcpcm, udpcm)
+	tcpPorts, udpPorts := core.GetExportedPorts(lb, tcpcm, udpcm)
 
 	// get selected nodes' ip
 	if len(lb.Spec.Nodes.Names) == 0 {
@@ -186,12 +186,12 @@ func (p *IpvsdrProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 		RealServer: resolvedNodes,
 	}
 
+	httpPort := core.GetHTTPPort(lb)
 	err = p.keepalived.UpdateConfig(
 		[]virtualServer{svc},
 		resolvedNeighbors,
 		getNodePriority(p.nodeIP.String(), resolvedNodes),
-		*lb.Status.ProvidersStatuses.Ipvsdr.Vrid,
-	)
+		*lb.Status.ProvidersStatuses.Ipvsdr.Vrid, httpPort)
 	if err != nil {
 		log.Error("error update keealived config", log.Fields{"err": err})
 		return err
