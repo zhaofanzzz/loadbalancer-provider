@@ -195,18 +195,6 @@ func getFrontendPortID(ag *network.ApplicationGateway) string {
 	return ""
 }
 
-func getProbeID(ag *network.ApplicationGateway) string {
-	if ag.Probes != nil {
-		for _, probe := range *ag.Probes {
-			if to.String(probe.Name) == CompassProbes {
-				return to.String(probe.ID)
-			}
-		}
-	}
-
-	return ""
-}
-
 func ensureAppGatewayProbes(ag *network.ApplicationGateway) *network.ApplicationGateway {
 	for _, probe := range *ag.Probes {
 		if to.String(probe.Name) == CompassProbes {
@@ -324,10 +312,10 @@ func addAllAzureRule(ag *network.ApplicationGateway, poolName string, rule map[s
 		// add application gatway request routing rule
 		ruleName := getAGRuleName(k)
 		settingName := getAGSettingName(k)
-		probeID := getProbeID(ag)
+		IDPrefix := strings.SplitAfter(portID, to.String(ag.Name))[0]
+		probeID := getAGProbeID(IDPrefix)
 		backendSetting := addAppGatewayBackendHTTPSettings(result, settingName, probeID, 80, 30)
 
-		IDPrefix := strings.SplitAfter(portID, to.String(ag.Name))[0]
 		backendID := getAGBackendID(IDPrefix, poolName)
 		listenerID := getAGListenerID(IDPrefix, listenerName)
 		settingID := getAGSettingID(IDPrefix, settingName)
