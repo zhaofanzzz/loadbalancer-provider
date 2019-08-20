@@ -1,4 +1,4 @@
-{{ $iface := .iface }}{{ $netmask := .netmask }}{{ $acceptMark := .acceptMark }}
+{{ $iface := .iface }}{{ $netmask := .netmask }}{{ $acceptMark := .acceptMark }} {{ $httpPort := .httpPort }}
 
 global_defs {
   vrrp_version 3
@@ -42,7 +42,7 @@ virtual_server fwmark {{ $acceptMark }} {
   real_server {{ $ip }} 0 {
     weight 1
     TCP_CHECK {
-      connect_port 80
+      connect_port {{ $httpPort }}
       connect_timeout 3
     }
   }
@@ -63,7 +63,7 @@ virtual_server fwmark {{ $acceptMark }} {
   real_server {{ $ip }} 0 {
     weight 1
     TCP_CHECK {
-      connect_port 80
+      connect_port {{ $httpPort }}
       connect_timeout 3
     }
   }
