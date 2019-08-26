@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-01-01/network"
@@ -25,6 +26,8 @@ const (
 	CompassProbes     = "compass-healthz-probe"
 	StatusSuccess     = "Success"
 	StatusError       = "Error"
+	StatusDeleting    = "Deleting"
+	StatusUpdating    = "Updating"
 	AzureFrontendPort = 80
 	AzureTimeout      = 30
 	AzureInterval     = 30
@@ -32,6 +35,8 @@ const (
 	AzureProbePath    = "/healthz"
 	AzureProbeHost    = "127.0.0.1"
 	HTTPProtocol      = "Http"
+	OneRuleMsg        = `%s 不能被删除或更新，请保证该 AppGateway 中至少有一条以上的规则再进行删除或更新操作！`
+	OnlyRuleMsg       = `当 AppGateway 被删除或更新时，会取消关联平台所有规则，请至少保证 %s 中有一条以上的规则再进行删除或更新操作！`
 )
 
 func getAzureAppGateway(c *client.Client, groupName, appGatewayName string) (*network.ApplicationGateway, error) {
@@ -118,6 +123,18 @@ func deleteAppGatewayBackendPool(c *client.Client, groupName, agName, lb, rule s
 			if err := json.Unmarshal([]byte(ruleStatus), &rStatus); err != nil {
 				log.Errorf("annotation rule status unmarshal failed %v", err)
 				return err
+			}
+		}
+		if len(rStatus) == len(*ag.RequestRoutingRules) {
+			only := true
+			for _, rule := range *ag.RequestRoutingRules {
+				if _, ok := rStatus[getIngressName(to.String(rule.Name))]; !ok {
+					only = false
+					break
+				}
+			}
+			if only {
+				return fmt.Errorf(OnlyRuleMsg, agName)
 			}
 		}
 		ag = deleteAllAzureRule(ag, groupName, rStatus)
@@ -289,7 +306,7 @@ func addAppGatewayRequestRoutingRule(ag *network.ApplicationGateway, ruleName, b
 
 func deleteAllAzureRule(ag *network.ApplicationGateway, groupName string, rule map[string]string) *network.ApplicationGateway {
 	for k, v := range rule {
-		if v == StatusSuccess {
+		if v == StatusDeleting {
 			ruleName := getAGRuleName(k)
 			listenerName := getAGListenerName(k)
 			settingName := getAGSettingName(k)
@@ -416,4 +433,8 @@ func getAGSettingID(prefix, settingName string) string {
 
 func getAGProbeID(prefix string) string {
 	return prefix + "/probes/" + CompassProbes
+}
+
+func getIngressName(rule string) string {
+	return strings.Split(rule, "-cps-rule")[0]
 }
