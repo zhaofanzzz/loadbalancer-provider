@@ -17,11 +17,7 @@ limitations under the License.
 package ingress
 
 import (
-	"net"
-	"strings"
-
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
-	corenet "github.com/caicloud/loadbalancer-provider/core/pkg/net"
 	"github.com/caicloud/loadbalancer-provider/core/pkg/sysctl"
 	core "github.com/caicloud/loadbalancer-provider/core/provider"
 	"github.com/caicloud/loadbalancer-provider/pkg/version"
@@ -74,7 +70,6 @@ var _ core.Provider = &IngressSidecar{}
 
 // IngressSidecar ...
 type IngressSidecar struct {
-	nodeInfo      *corenet.Interface
 	storeLister   core.StoreLister
 	ipt           iptables.Interface
 	sysctlDefault map[string]string
@@ -83,18 +78,12 @@ type IngressSidecar struct {
 }
 
 // NewIngressSidecar creates a new ingress sidecar
-func NewIngressSidecar(nodeIP net.IP, lb *lbapi.LoadBalancer) (*IngressSidecar, error) {
-	nodeInfo, err := corenet.InterfaceByIP(nodeIP.String())
-	if err != nil {
-		log.Error("get node info err", log.Fields{"err": err})
-		return nil, err
-	}
+func NewIngressSidecar(lb *lbapi.LoadBalancer) (*IngressSidecar, error) {
 	execer := k8sexec.New()
 	dbus := utildbus.New()
 	iptInterface := iptables.New(execer, dbus, iptables.ProtocolIpv4)
 
 	sidecar := &IngressSidecar{
-		nodeInfo:      nodeInfo,
 		sysctlDefault: make(map[string]string),
 		ipt:           iptInterface,
 	}
@@ -104,41 +93,6 @@ func NewIngressSidecar(nodeIP net.IP, lb *lbapi.LoadBalancer) (*IngressSidecar, 
 
 // OnUpdate ...
 func (p *IngressSidecar) OnUpdate(lb *lbapi.LoadBalancer) error {
-	// FIX: issue #3
-	// if err := lbapi.ValidateLoadBalancer(lb); err != nil {
-	// 	log.Error("invalid loadbalancer", log.Fields{"err": err})
-	// 	return nil
-	// }
-
-	// // filtered
-	// if lb.Spec.Type != lbapi.LoadBalancerTypeExternal || lb.Spec.Providers.Ipvsdr == nil {
-	// 	return nil
-	// }
-
-	// tcpcm, err := p.storeLister.ConfigMap.ConfigMaps(lb.Namespace).Get(lb.Status.ProxyStatus.TCPConfigMap)
-	// if err != nil {
-	// 	log.Error("can not find tcp configmap for loadbalancer")
-	// 	return err
-	// }
-	// udpcm, err := p.storeLister.ConfigMap.ConfigMaps(lb.Namespace).Get(lb.Status.ProxyStatus.UDPConfigMap)
-	// if err != nil {
-	// 	log.Error("can not find udp configmap for loadbalancer")
-	// 	return err
-	// }
-
-	// tcpPorts, udpPorts := core.GetExportedPorts(tcpcm, udpcm)
-
-	// if reflect.DeepEqual(p.tcpPorts, tcpPorts) && reflect.DeepEqual(p.udpPorts, udpPorts) {
-	// 	// no change
-	// 	return nil
-	// }
-
-	// log.Info("Updating config")
-
-	// p.tcpPorts = tcpPorts
-	// p.udpPorts = udpPorts
-
-	// p.ensureIptablesNotrack(tcpPorts, udpPorts)
 
 	return nil
 }
@@ -148,7 +102,6 @@ func (p *IngressSidecar) Start() {
 	log.Info("Startting ingress sidecar provider")
 
 	p.changeSysctl()
-	// p.ensureChain()
 	return
 }
 
@@ -165,8 +118,6 @@ func (p *IngressSidecar) Stop() error {
 	if err != nil {
 		log.Error("reset sysctl error", log.Fields{"err": err})
 	}
-
-	// p.deleteChain()
 
 	return nil
 }
@@ -204,65 +155,4 @@ func (p *IngressSidecar) resetSysctl() error {
 	log.Info("reset sysctl to original value", log.Fields{"defaults": p.sysctlDefault})
 	_, err := sysctl.BulkModify(p.sysctlDefault)
 	return err
-}
-
-func (p *IngressSidecar) ensureChain() {
-	// create chain
-	ae, err := p.ipt.EnsureChain(tableRaw, iptables.Chain(iptablesChain))
-	if err != nil {
-		log.Fatalf("unexpected error: %v", err)
-	}
-	if ae {
-		log.Infof("chain %v already existed", iptablesChain)
-	}
-
-	// add rule to let all traffic jump to our chain
-	p.ipt.EnsureRule(iptables.Append, tableRaw, iptables.ChainPrerouting, "-j", iptablesChain)
-}
-
-func (p *IngressSidecar) flushChain() {
-	log.Info("flush iptables rules", log.Fields{"table": tableRaw, "chain": iptablesChain})
-	p.ipt.FlushChain(tableRaw, iptables.Chain(iptablesChain))
-}
-
-func (p *IngressSidecar) deleteChain() {
-	// flush chain
-	p.flushChain()
-	// delete jump rule
-	p.ipt.DeleteRule(tableRaw, iptables.ChainPrerouting, "-j", iptablesChain)
-	// delete chain
-	p.ipt.DeleteChain(tableRaw, iptablesChain)
-}
-
-func (p *IngressSidecar) setIptablesNotrack(protocol string, ports []string) (bool, error) {
-	args := make([]string, 0)
-	args = append(args, "-i", p.nodeInfo.Name, "-p", protocol)
-
-	if len(ports) > 0 {
-		args = append(args, "-m", "multiport", "--dports", strings.Join(ports, ","))
-	}
-	args = append(args, "-j", "NOTRACK")
-
-	return p.ipt.EnsureRule(iptables.Prepend, tableRaw, iptablesChain, args...)
-}
-
-func (p *IngressSidecar) ensureIptablesNotrack(tcpPorts, udpPorts []string) {
-	log.Info("ensure iptables rules")
-
-	// flush all rules
-	p.flushChain()
-
-	if len(tcpPorts) > 0 {
-		_, err := p.setIptablesNotrack("tcp", tcpPorts)
-		if err != nil {
-			log.Error("error ensure iptables tcp rule for", log.Fields{"tcpPorts": tcpPorts})
-		}
-	}
-	if len(udpPorts) > 0 {
-		_, err := p.setIptablesNotrack("udp", udpPorts)
-		if err != nil {
-			log.Error("error ensure iptables udp rule for", log.Fields{"udpPorts": udpPorts})
-		}
-	}
-
 }
