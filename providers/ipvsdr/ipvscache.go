@@ -53,8 +53,8 @@ func (ipvs *ipvsCacheCleaner) ipvsSaveAndClean() error {
 		return nil
 	}
 
-	ipvsadm := shell.Command("ipvsadm").CombinedOutputClosure()
-	output, err := ipvsadm("-Sn")
+	ipvsadmCmd := shell.Command("ipvsadm").CombinedOutputClosure()
+	output, err := ipvsadmCmd("-Sn")
 	if err != nil {
 		log.Errorf("Error save ipvs rules: %v", string(output))
 		return err
@@ -64,7 +64,7 @@ func (ipvs *ipvsCacheCleaner) ipvsSaveAndClean() error {
 		return nil
 	}
 	// clean the whole table
-	msg, err := ipvsadm("-C")
+	msg, err := ipvsadmCmd("-C")
 	if err != nil {
 		log.Errorf("Error clean ipvs rules: %v", string(msg))
 		return err

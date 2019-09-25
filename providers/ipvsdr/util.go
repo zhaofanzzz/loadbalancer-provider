@@ -19,13 +19,9 @@ package ipvsdr
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"os"
 	"regexp"
-
-	"github.com/golang/glog"
-	k8sexec "k8s.io/kubernetes/pkg/util/exec"
 )
 
 var (
@@ -56,16 +52,6 @@ func appendIfMissing(slice []string, item string) []string {
 		}
 	}
 	return append(slice, item)
-}
-
-func resetIPVS() error {
-	glog.Info("cleaning ipvs configuration")
-	_, err := k8sexec.New().Command("ipvsadm", "-C").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("error removing ipvs configuration: %v", err)
-	}
-
-	return nil
 }
 
 func getNeighbors(ip string, nodes []string) (neighbors []string) {

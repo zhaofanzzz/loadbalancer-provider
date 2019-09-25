@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/caicloud/clientset/kubernetes"
-	corenode "github.com/caicloud/loadbalancer-provider/core/pkg/node"
 	core "github.com/caicloud/loadbalancer-provider/core/provider"
 	"github.com/caicloud/loadbalancer-provider/pkg/version"
 	"github.com/caicloud/loadbalancer-provider/providers/ingress"
@@ -73,23 +72,13 @@ func Run(opts *Options) error {
 		return err
 	}
 
-	labels := []string{opts.NodeIPLabel}
-	annotations := []string{opts.NodeIPAnnotation}
-
-	// get node ip
-	nodeIP, err := corenode.GetNodeIPForPod(clientset, opts.PodNamespace, opts.PodName, labels, annotations)
-	if err != nil {
-		log.Fatal("Can not get node ip", log.Fields{"err": err})
-		return err
-	}
-
 	lb, err := clientset.LoadbalanceV1alpha2().LoadBalancers(opts.LoadBalancerNamespace).Get(opts.LoadBalancerName, metav1.GetOptions{})
 	if err != nil {
 		log.Fatal("Can not find loadbalancer resource", log.Fields{"lb.ns": opts.LoadBalancerNamespace, "lb.name": opts.LoadBalancerName})
 		return err
 	}
 
-	sidecar, err := ingress.NewIngressSidecar(nodeIP, lb)
+	sidecar, err := ingress.NewIngressSidecar(lb)
 	if err != nil {
 		return err
 	}
