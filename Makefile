@@ -96,7 +96,7 @@ test:
 
 build-local:
 	@for target in $(TARGETS); do                                                      \
-	  go build -i -v -o $(OUTPUT_DIR)/$${target} -p $(CPUS)                            \
+	  CGO_ENABLED=0 go build -i -v -o $(OUTPUT_DIR)/$${target} -p $(CPUS)              \
 	  -ldflags "-s -w -X $(ROOT)/pkg/version.VERSION=$(VERSION)                        \
 	    -X $(ROOT)/pkg/version.REPOROOT=$(ROOT)"                                       \
 	  $(CMD_DIR)/$${target};                                                           \
@@ -109,6 +109,7 @@ build-linux:
 	  -e GOOS=linux                                                                    \
 	  -e GOARCH=amd64                                                                  \
 	  -e GOPATH=/go                                                                    \
+	  -e CGO_ENABLED=0                                                                 \
 	  $(BASE_REGISTRY)/golang:1.12.9-stretch                                           \
 	    /bin/bash -c 'for target in $(TARGETS); do                                     \
 	      go build -i -v -o $(OUTPUT_DIR)/$${target} -p $(CPUS)                        \
