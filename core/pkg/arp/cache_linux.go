@@ -31,8 +31,8 @@ const (
 	fHWType
 	fFlags
 	fHWAddr
+	fMask
 	fDevice
-	// fMask
 )
 
 const (
@@ -83,6 +83,8 @@ func parse(line string, ifaces []net.Interface) (*Cache, error) {
 	if err != nil {
 		return nil, err
 	}
+	// fix lint error, don't need it by now
+	_ = fields[fMask]
 	d := fields[fDevice]
 	var dev *net.Interface
 	for _, iface := range ifaces {
