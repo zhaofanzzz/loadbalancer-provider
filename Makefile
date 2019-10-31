@@ -136,6 +136,9 @@ push: container
 	  docker push $(REGISTRY)/$${image}:$(VERSION);                                    \
 	done
 
+lint:
+	@echo "skip lint for this version"
+
 .PHONY: clean
 clean:
 	@-rm -vrf ${OUTPUT_DIR}
