@@ -483,15 +483,15 @@ func getSecurityGroupRuleBrief(rule *network.SecurityRule) *network.SecurityRule
 }
 
 func getDefaultSecurityGroupRule(prefix, port string, priority *int32) *network.SecurityRule {
-	protocl := network.SecurityRuleProtocolTCP
+	protocol := network.SecurityRuleProtocolTCP
 	if prefix == securityGroupUDPPrefix {
-		protocl = network.SecurityRuleProtocolUDP
+		protocol = network.SecurityRuleProtocolUDP
 	}
 	return &network.SecurityRule{
 		Name: to.StringPtr(prefix + port),
 		SecurityRulePropertiesFormat: &network.SecurityRulePropertiesFormat{
 			Description:              to.StringPtr("use for cps"),
-			Protocol:                 protocl,
+			Protocol:                 protocol,
 			SourcePortRange:          to.StringPtr("*"),
 			DestinationPortRange:     to.StringPtr(port),
 			SourceAddressPrefix:      to.StringPtr("*"),
@@ -687,7 +687,7 @@ func detachNetworkInterfacesAndLoadBalancer(c *client.Client, detachID string, p
 		newPools := make([]network.BackendAddressPool, 0, len(pools))
 		found := false
 		for _, pool := range pools {
-			if strings.ToLower(to.String(pool.ID)) == strings.ToLower(poolID) {
+			if strings.EqualFold(to.String(pool.ID), poolID) {
 				found = true
 			} else {
 				newPools = append(newPools, pool)
@@ -731,7 +731,7 @@ func attachNetworkInterfacesAndLoadBalancer(c *client.Client, attachID string, p
 		pools := ipcs[i].LoadBalancerBackendAddressPools
 		if pools != nil && len(*pools) != 0 {
 			for _, pool := range *pools {
-				if strings.ToLower(to.String(pool.ID)) == strings.ToLower(poolID) {
+				if strings.EqualFold(to.String(pool.ID), poolID) {
 					found = true
 					break
 				}

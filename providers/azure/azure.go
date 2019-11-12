@@ -183,9 +183,9 @@ func (l *Provider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer, lb 
 	}
 	setProvisioningPublicIPAddress(lb, publicIPAddress)
 	if err == nil {
-		_, _ = l.patchLoadBalancerAzureStatus(lb, lbapi.AzureRunningPhase, nil)
+		_ = l.patchLoadBalancerAzureStatus(lb, lbapi.AzureRunningPhase, nil)
 	} else {
-		_, _ = l.patchLoadBalancerAzureStatus(lb, lbapi.AzureErrorPhase, err)
+		_ = l.patchLoadBalancerAzureStatus(lb, lbapi.AzureErrorPhase, err)
 	}
 }
 
@@ -196,7 +196,7 @@ func (l *Provider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]string
 	log.Infof("start sync azlb group %s name %s tcp %v", azureSpec.ResourceGroupName, azureSpec.Name, tcp)
 
 	// update status
-	_, err := l.patchLoadBalancerAzureStatus(lb, lbapi.AzureUpdatingPhase, nil)
+	err := l.patchLoadBalancerAzureStatus(lb, lbapi.AzureUpdatingPhase, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -350,7 +350,7 @@ func (l *Provider) patachFinalizersAndStatus(lb *lbapi.LoadBalancer, deleteLB bo
 }
 
 // patch load balancer azure status
-func (l *Provider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, phase lbapi.AzureProviderPhase, result error) (*lbapi.LoadBalancer, error) {
+func (l *Provider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, phase lbapi.AzureProviderPhase, result error) error {
 	var reason, message string
 	var serviceError *client.ServiceError
 	switch t := result.(type) {
@@ -390,12 +390,12 @@ func (l *Provider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, phase lb
 	if lb != nil {
 		namespace, name = lb.Namespace, lb.Name
 	}
-	lb, err := l.clientset.LoadbalanceV1alpha2().LoadBalancers(namespace).Patch(name, types.MergePatchType, []byte(patch))
+	_, err := l.clientset.LoadbalanceV1alpha2().LoadBalancers(namespace).Patch(name, types.MergePatchType, []byte(patch))
 	if err != nil {
 		log.Errorf("patch lb %s failed %v", name, err)
-		return nil, err
+		return err
 	}
-	return lb, nil
+	return nil
 }
 
 // clean up azure lb info and make oldAzureProvider nil
@@ -445,7 +445,7 @@ func (l *Provider) cleanupAzureLB(lb *lbapi.LoadBalancer, deleteLB bool) error {
 			return false, nil
 		})
 		if err != nil {
-			_, _ = l.patchLoadBalancerAzureStatus(lb, lbapi.AzureErrorPhase, err)
+			_ = l.patchLoadBalancerAzureStatus(lb, lbapi.AzureErrorPhase, err)
 			return err
 		}
 		err = l.patachFinalizersAndStatus(lb, deleteLB)
