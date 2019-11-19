@@ -2,6 +2,7 @@ package azure
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -49,7 +50,8 @@ const (
 	azureProviderStatusFormat                   = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s"}}}}`
 	azureProviderStatusAndPublicIPAddressFormat = `{"status":{"providersStatuses":{"azure":{"phase":"%s","reason":"%s","message":"%s", "provisioningState":"%s", "publicIPAddress":"%s"}}}}`
 
-	azureFinalizer = "finalizer.azure.loadbalancer.loadbalance.caicloud.io"
+	azureFinalizer   = "finalizer.azure.loadbalancer.loadbalance.caicloud.io"
+	ingressFinalizer = "ingresses.extensions/azure-deletion"
 )
 
 // MachineInfo machine info
@@ -454,4 +456,22 @@ func copyMap(m map[string]string) map[string]string {
 		newm[k] = v
 	}
 	return newm
+}
+
+func convertMap(ruleStatus, ruleMsg string) (map[string]string, map[string]string, error) {
+	rStatus := make(map[string]string)
+	if ruleStatus != "" {
+		if err := json.Unmarshal([]byte(strings.Replace(ruleStatus, "\\\"", "\"", -1)), &rStatus); err != nil {
+			log.Errorf("annotation rule status unmarshal failed %v", err)
+			return nil, nil, err
+		}
+	}
+	rMsg := make(map[string]string)
+	if ruleMsg != "" {
+		if err := json.Unmarshal([]byte(strings.Replace(ruleMsg, "\\\"", "\"", -1)), &rMsg); err != nil {
+			log.Errorf("annotation rule msg unmarshal failed %v", err)
+			return nil, nil, err
+		}
+	}
+	return rStatus, rMsg, nil
 }

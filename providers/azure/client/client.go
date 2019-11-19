@@ -56,6 +56,9 @@ func NewClientWithConfig(config *Config) (*Client, error) {
 	networkInterfaceClient := network.NewInterfacesClientWithBaseURI(baseURL, config.SubscriptionID)
 	networkInterfaceClient.Authorizer = authorizer
 
+	appGatewayClient := network.NewApplicationGatewaysClientWithBaseURI(baseURL, config.SubscriptionID)
+	appGatewayClient.Authorizer = authorizer
+
 	securityGroupClient := network.NewSecurityGroupsClientWithBaseURI(baseURL, config.SubscriptionID)
 	securityGroupClient.Authorizer = authorizer
 
@@ -71,6 +74,9 @@ func NewClientWithConfig(config *Config) (*Client, error) {
 		},
 		NetworkInterface: &networkInterfaceClientWrapper{
 			InterfacesClient: networkInterfaceClient,
+		},
+		AppGateway: &appGatewayClientWrapper{
+			ApplicationGatewaysClient: appGatewayClient,
 		},
 		Config: config,
 		SecurityGroup: &securityGroupClientWrapper{

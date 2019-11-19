@@ -27,6 +27,7 @@ import (
 	"github.com/caicloud/clientset/util/syncqueue"
 	log "github.com/zoumo/logdog"
 	v1 "k8s.io/api/core/v1"
+	v1beta1 "k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
@@ -60,6 +61,7 @@ func NewLoadBalancerProvider(cfg *Configuration) *GenericProvider {
 
 	lbinformer := gp.factory.Loadbalance().V1alpha2().LoadBalancers()
 	cminformer := gp.factory.Core().V1().ConfigMaps()
+	iginformer := gp.factory.Extensions().V1beta1().Ingresses()
 	lbinformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    gp.addLoadBalancer,
 		UpdateFunc: gp.updateLoadBalancer,
@@ -67,6 +69,11 @@ func NewLoadBalancerProvider(cfg *Configuration) *GenericProvider {
 	})
 	cminformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: gp.updateConfigMap,
+	})
+	iginformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    gp.addIngress,
+		UpdateFunc: gp.updateIngress,
+		DeleteFunc: gp.deleteIngress,
 	})
 
 	// sync nodes
@@ -81,6 +88,7 @@ func NewLoadBalancerProvider(cfg *Configuration) *GenericProvider {
 		Node:         nodeinformer.Lister(),
 		LoadBalancer: lbinformer.Lister(),
 		ConfigMap:    cminformer.Lister(),
+		Ingress:      iginformer.Lister(),
 		Secret:       secretinformer.Lister(),
 	})
 
@@ -172,7 +180,9 @@ func (p *GenericProvider) updateLoadBalancer(oldObj, curObj interface{}) {
 		reflect.DeepEqual(old.Finalizers, cur.Finalizers) &&
 		reflect.DeepEqual(old.DeletionTimestamp, cur.DeletionTimestamp) &&
 		reflect.DeepEqual(old.Status.ProxyStatus.TCPConfigMap, cur.Status.ProxyStatus.TCPConfigMap) &&
-		reflect.DeepEqual(old.Status.ProxyStatus.UDPConfigMap, cur.Status.ProxyStatus.UDPConfigMap) {
+		reflect.DeepEqual(old.Status.ProxyStatus.UDPConfigMap, cur.Status.ProxyStatus.UDPConfigMap) &&
+		old.Annotations != nil && cur.Annotations != nil &&
+		old.Annotations[AppGatewayName] == cur.Annotations[AppGatewayName] {
 		return
 	}
 
@@ -231,6 +241,54 @@ func (p *GenericProvider) updateConfigMap(oldObj, curObj interface{}) {
 
 }
 
+func (p *GenericProvider) addIngress(obj interface{}) {
+	ig := obj.(*v1beta1.Ingress)
+
+	if p.filterIngress(ig) {
+		return
+	}
+
+	log.Info("Adding Ingress")
+	p.queue.Enqueue(cache.ExplicitKey(p.cfg.LoadBalancerNamespace + "/" + p.cfg.LoadBalancerName))
+}
+
+func (p *GenericProvider) updateIngress(oldObj, curObj interface{}) {
+	old := oldObj.(*v1beta1.Ingress)
+	cur := curObj.(*v1beta1.Ingress)
+
+	if old.ResourceVersion == cur.ResourceVersion {
+		// Periodic resync will send update events for all known LoadBalancer.
+		// Two different versions of the same LoadBalancer will always have different RVs.
+		return
+	}
+
+	if p.filterIngress(cur) {
+		return
+	}
+
+	// ignore change of status
+	if reflect.DeepEqual(old.Finalizers, cur.Finalizers) &&
+		reflect.DeepEqual(old.DeletionTimestamp, cur.DeletionTimestamp) {
+		return
+	}
+
+	log.Info("Updating Ingress")
+
+	p.queue.Enqueue(cache.ExplicitKey(p.cfg.LoadBalancerNamespace + "/" + p.cfg.LoadBalancerName))
+
+}
+
+func (p *GenericProvider) deleteIngress(obj interface{}) {
+	ig := obj.(*v1beta1.Ingress)
+
+	if p.filterIngress(ig) {
+		return
+	}
+
+	log.Info("Deleting Ingress")
+	p.queue.Enqueue(cache.ExplicitKey(p.cfg.LoadBalancerNamespace + "/" + p.cfg.LoadBalancerName))
+}
+
 func (p *GenericProvider) filterLoadBalancer(lb *lbapi.LoadBalancer) bool {
 	if lb.Namespace == p.cfg.LoadBalancerNamespace && lb.Name == p.cfg.LoadBalancerName {
 		return false
@@ -244,6 +302,10 @@ func (p *GenericProvider) filterConfigMap(cm *v1.ConfigMap) bool {
 		return false
 	}
 	return true
+}
+
+func (p *GenericProvider) filterIngress(ig *v1beta1.Ingress) bool {
+	return ig.Annotations[IngressClass] != p.cfg.IngressClass
 }
 
 func (p *GenericProvider) syncLoadBalancer(obj interface{}) error {

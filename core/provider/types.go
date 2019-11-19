@@ -22,6 +22,12 @@ import (
 	"github.com/caicloud/clientset/listers/resource/v1beta1"
 	lbapi "github.com/caicloud/clientset/pkg/apis/loadbalance/v1alpha2"
 	v1listers "k8s.io/client-go/listers/core/v1"
+	v1beta1listers "k8s.io/client-go/listers/extensions/v1beta1"
+)
+
+const (
+	AppGatewayName = "loadbalance.caicloud.io/azureAppGatewayName"
+	IngressClass   = "kubernetes.io/ingress.class"
 )
 
 // Provider holds the methods to handle an Provider backend
@@ -60,6 +66,7 @@ type StoreLister struct {
 	LoadBalancer lblisters.LoadBalancerLister
 	Node         v1listers.NodeLister
 	ConfigMap    v1listers.ConfigMapLister
+	Ingress      v1beta1listers.IngressLister
 	Secret       v1listers.SecretLister
 	Machine      v1beta1.MachineLister
 }
@@ -72,4 +79,5 @@ type Configuration struct {
 	LoadBalancerNamespace string
 	TCPConfigMap          string
 	UDPConfigMap          string
+	IngressClass          string
 }

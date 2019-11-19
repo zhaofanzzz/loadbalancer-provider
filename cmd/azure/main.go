@@ -74,6 +74,7 @@ func Run(opts *Options) error {
 		LoadBalancerNamespace: opts.LoadBalancerNamespace,
 		TCPConfigMap:          lb.Status.ProxyStatus.TCPConfigMap,
 		UDPConfigMap:          lb.Status.ProxyStatus.UDPConfigMap,
+		IngressClass:          lb.Status.ProxyStatus.IngressClass,
 	})
 
 	// handle shutdown
