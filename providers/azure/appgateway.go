@@ -137,7 +137,7 @@ func deleteAppGatewayBackendPool(c *client.Client, groupName, agName, lb, rule s
 				return fmt.Errorf(OnlyRuleMsg, agName)
 			}
 		}
-		ag = deleteAllAzureRule(ag, groupName, rStatus)
+		ag = deleteAllAzureRule(ag, rStatus)
 	}
 	_, err = c.AppGateway.CreateOrUpdate(context.TODO(), groupName, agName, *ag)
 	if err != nil {
@@ -177,7 +177,7 @@ func addAzureRule(c *client.Client, ag *network.ApplicationGateway, groupName, l
 	// add application gateway http listener
 	listenerName := getAGListenerName(rule)
 	portID := getFrontendPortID(ag)
-	result := addAppGatewayHttpListener(ag, listenerName, hostname, portID)
+	result := addAppGatewayHTTPListener(ag, listenerName, hostname, portID)
 
 	// add application gatway request routing rule
 	ruleName := getAGRuleName(rule)
@@ -240,7 +240,7 @@ func createAppGatewayProbes(ag *network.ApplicationGateway, probeName, healthPat
 	return ag
 }
 
-func addAppGatewayHttpListener(ag *network.ApplicationGateway, listenerName, hostname, portID string) *network.ApplicationGateway {
+func addAppGatewayHTTPListener(ag *network.ApplicationGateway, listenerName, hostname, portID string) *network.ApplicationGateway {
 	if ag.HTTPListeners == nil {
 		ag.HTTPListeners = &[]network.ApplicationGatewayHTTPListener{}
 	}
@@ -304,7 +304,7 @@ func addAppGatewayRequestRoutingRule(ag *network.ApplicationGateway, ruleName, b
 	return ag
 }
 
-func deleteAllAzureRule(ag *network.ApplicationGateway, groupName string, rule map[string]string) *network.ApplicationGateway {
+func deleteAllAzureRule(ag *network.ApplicationGateway, rule map[string]string) *network.ApplicationGateway {
 	for k, v := range rule {
 		if v == StatusDeleting {
 			ruleName := getAGRuleName(k)
@@ -314,7 +314,7 @@ func deleteAllAzureRule(ag *network.ApplicationGateway, groupName string, rule m
 			backendSetting := deleteAppGatewayBackendHTTPSettings(result, settingName)
 
 			// delete application gateway http listener
-			ag = deleteAppGatewayHttpListener(backendSetting, listenerName)
+			ag = deleteAppGatewayHTTPListener(backendSetting, listenerName)
 		}
 	}
 	return ag
@@ -324,7 +324,7 @@ func addAllAzureRule(ag *network.ApplicationGateway, poolName string, rule map[s
 	for k, v := range rule {
 		listenerName := getAGListenerName(k)
 		portID := getFrontendPortID(ag)
-		result := addAppGatewayHttpListener(ag, listenerName, v, portID)
+		result := addAppGatewayHTTPListener(ag, listenerName, v, portID)
 
 		// add application gatway request routing rule
 		ruleName := getAGRuleName(k)
@@ -350,7 +350,7 @@ func deleteAzureRule(c *client.Client, ag *network.ApplicationGateway, groupName
 	backendSetting := deleteAppGatewayBackendHTTPSettings(result, settingName)
 
 	// delete application gateway http listener
-	updated := deleteAppGatewayHttpListener(backendSetting, listenerName)
+	updated := deleteAppGatewayHTTPListener(backendSetting, listenerName)
 
 	_, err := c.AppGateway.CreateOrUpdate(context.TODO(), groupName, to.String(updated.Name), *updated)
 	if err != nil {
@@ -361,7 +361,7 @@ func deleteAzureRule(c *client.Client, ag *network.ApplicationGateway, groupName
 	return nil
 }
 
-func deleteAppGatewayHttpListener(ag *network.ApplicationGateway, listenerName string) *network.ApplicationGateway {
+func deleteAppGatewayHTTPListener(ag *network.ApplicationGateway, listenerName string) *network.ApplicationGateway {
 	var aghl []network.ApplicationGatewayHTTPListener
 	if ag.HTTPListeners != nil {
 		for _, listener := range *ag.HTTPListeners {

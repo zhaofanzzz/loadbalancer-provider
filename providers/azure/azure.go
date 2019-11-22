@@ -27,10 +27,8 @@ import (
 	"github.com/caicloud/loadbalancer-provider/providers/azure/client"
 )
 
-const trueString = "true"
-
 // Provider azure lb provider
-type AzureProvider struct {
+type Provider struct {
 	storeLister           core.StoreLister
 	clientset             *kubernetes.Clientset
 	loadBalancerNamespace string
@@ -52,8 +50,8 @@ type AzureProvider struct {
 }
 
 // New creates a new azure LoadBalancer Provider.
-func New(clientset *kubernetes.Clientset, name, namespace string) (*AzureProvider, error) {
-	azure := &AzureProvider{
+func New(clientset *kubernetes.Clientset, name, namespace string) (*Provider, error) {
+	azure := &Provider{
 		clientset:             clientset,
 		loadBalancerName:      name,
 		loadBalancerNamespace: namespace,
@@ -62,11 +60,11 @@ func New(clientset *kubernetes.Clientset, name, namespace string) (*AzureProvide
 }
 
 // SetListers set store lister
-func (l *AzureProvider) SetListers(storeLister core.StoreLister) {
+func (l *Provider) SetListers(storeLister core.StoreLister) {
 	l.storeLister = storeLister
 }
 
-func (l *AzureProvider) setCacheAzureLoadbalancer(azure *lbapi.AzureProvider) {
+func (l *Provider) setCacheAzureLoadbalancer(azure *lbapi.AzureProvider) {
 	if l.oldAzureProvider == nil {
 		l.oldAzureProvider = &lbapi.AzureProvider{}
 	}
@@ -74,7 +72,7 @@ func (l *AzureProvider) setCacheAzureLoadbalancer(azure *lbapi.AzureProvider) {
 	l.oldAzureProvider.ResourceGroupName = azure.ResourceGroupName
 }
 
-func (l *AzureProvider) setCacheReserveStatus(reserve *bool) {
+func (l *Provider) setCacheReserveStatus(reserve *bool) {
 	if l.oldAzureProvider == nil {
 		l.oldAzureProvider = &lbapi.AzureProvider{}
 	}
@@ -82,19 +80,19 @@ func (l *AzureProvider) setCacheReserveStatus(reserve *bool) {
 	l.oldAzureProvider.ReserveAzure = reserve
 }
 
-func (l *AzureProvider) setCacheAzureAppGateway(ag string) {
+func (l *Provider) setCacheAzureAppGateway(ag string) {
 	l.oldAppGateway = ag
 }
 
-func (l *AzureProvider) setCacheAzureResourceGroup(rg string) {
+func (l *Provider) setCacheAzureResourceGroup(rg string) {
 	l.oldResourceGroup = rg
 }
 
-func (l *AzureProvider) setCacheAzureingressesNum(len int) {
+func (l *Provider) setCacheAzureingressesNum(len int) {
 	l.ingressesNum = len
 }
 
-func (l *AzureProvider) setCacheNodes(nodes []string) {
+func (l *Provider) setCacheNodes(nodes []string) {
 	l.nodes = nodes
 }
 
@@ -108,7 +106,7 @@ func hasAzureFinalizer(lb *lbapi.LoadBalancer) bool {
 }
 
 // OnUpdate update loadbalancer
-func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
+func (l *Provider) OnUpdate(lb *lbapi.LoadBalancer) error {
 
 	log.Infof("OnUpdate......")
 
@@ -119,7 +117,9 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	agStatus := lb.Annotations[BackendpoolStatus]
 	if agStatus != "" && agStatus != StatusSuccess && agStatus != StatusError &&
 		(lb.Annotations[AppGatewayName] != l.oldAppGateway || !reflect.DeepEqual(l.nodes, lb.Spec.Nodes.Names)) {
-		l.updateAzureAppGateway(nlb)
+		if err := l.updateAzureAppGateway(nlb); err != nil {
+			return err
+		}
 	}
 
 	ing, err := l.filterIngress(lb)
@@ -127,12 +127,16 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 		return err
 	}
 	if len(ing) != l.ingressesNum && lb.Annotations[AppGateway] == "true" {
-		l.updateIngress(ing, nlb, nil)
+		if err := l.updateIngress(ing, nlb, nil); err != nil {
+			return err
+		}
 	}
 	if lb.Annotations[AppGateway] == "true" {
 		fing := l.filterFinalizerIngress(ing)
 		if fing != nil {
-			l.updateIngress(ing, nlb, fing)
+			if err := l.updateIngress(ing, nlb, fing); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -180,7 +184,7 @@ func (l *AzureProvider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	return err
 }
 
-func (l *AzureProvider) updateCacheData(lb *lbapi.LoadBalancer, tcp, udp map[string]string, ing int) {
+func (l *Provider) updateCacheData(lb *lbapi.LoadBalancer, tcp, udp map[string]string, ing int) {
 	l.oldAzureProvider = lb.Spec.Providers.Azure
 	l.nodes = lb.Spec.Nodes.Names
 	l.tcpRuleMap = tcp
@@ -191,12 +195,12 @@ func (l *AzureProvider) updateCacheData(lb *lbapi.LoadBalancer, tcp, udp map[str
 }
 
 // Start ...
-func (l *AzureProvider) Start() {
+func (l *Provider) Start() {
 	log.Infof("Startting azure provider ns %s name %s", l.loadBalancerNamespace, l.loadBalancerName)
 }
 
 // Stop ...
-func (l *AzureProvider) Stop() error {
+func (l *Provider) Stop() error {
 	log.Infof("end provider azure...")
 	_, err := l.storeLister.LoadBalancer.LoadBalancers(l.loadBalancerNamespace).Get(l.loadBalancerName)
 	if errors.IsNotFound(err) {
@@ -206,7 +210,7 @@ func (l *AzureProvider) Stop() error {
 }
 
 // WaitForStart waits for
-func (l *AzureProvider) WaitForStart() bool {
+func (l *Provider) WaitForStart() bool {
 	// err := wait.Poll(time.Second, 60*time.Second, func() (bool, error) {
 	// 	//
 	// 	return true, nil
@@ -219,7 +223,7 @@ func (l *AzureProvider) WaitForStart() bool {
 }
 
 // Info information about the provider.
-func (l *AzureProvider) Info() core.Info {
+func (l *Provider) Info() core.Info {
 	info := version.Get()
 	return core.Info{
 		Name:      "azure",
@@ -229,7 +233,7 @@ func (l *AzureProvider) Info() core.Info {
 	}
 }
 
-func (l *AzureProvider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer, lb *lbapi.LoadBalancer, publicIPAddress string, err error) {
+func (l *Provider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer, lb *lbapi.LoadBalancer, publicIPAddress string, err error) {
 	if azlb != nil {
 		setProvisioningState(lb, to.String(azlb.ProvisioningState))
 	}
@@ -242,7 +246,7 @@ func (l *AzureProvider) updateLoadBalancerAzureStatus(azlb *network.LoadBalancer
 }
 
 // make sure azure lb config stay in same with compass lb
-func (l *AzureProvider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]string) (*network.LoadBalancer, string, error) {
+func (l *Provider) ensureSync(lb *lbapi.LoadBalancer, tcp, udp map[string]string) (*network.LoadBalancer, string, error) {
 
 	azureSpec := lb.Spec.Providers.Azure
 	log.Infof("start sync azlb group %s name %s tcp %v", azureSpec.ResourceGroupName, azureSpec.Name, tcp)
@@ -300,7 +304,7 @@ func getPublicIPAddress(c *client.Client, lb *lbapi.LoadBalancer) (string, error
 }
 
 // get compass lb proxy info and compare with cache data
-func (l *AzureProvider) getProxyConfigMapAndCompare(lb *lbapi.LoadBalancer) (map[string]string, map[string]string, bool, error) {
+func (l *Provider) getProxyConfigMapAndCompare(lb *lbapi.LoadBalancer) (map[string]string, map[string]string, bool, error) {
 	tcpCm, err := l.storeLister.ConfigMap.ConfigMaps(lb.Namespace).Get(lb.Status.ProxyStatus.TCPConfigMap)
 	if err != nil {
 		log.Errorf("get namespace %s cm %s failed err : %v", lb.Namespace, lb.Status.ProxyStatus.TCPConfigMap, err)
@@ -318,7 +322,7 @@ func (l *AzureProvider) getProxyConfigMapAndCompare(lb *lbapi.LoadBalancer) (map
 }
 
 // filterIngress filter ingresses in all namespace
-func (l *AzureProvider) filterIngress(lb *lbapi.LoadBalancer) ([]*v1beta1.Ingress, error) {
+func (l *Provider) filterIngress(lb *lbapi.LoadBalancer) ([]*v1beta1.Ingress, error) {
 	ingresses, err := l.storeLister.Ingress.Ingresses(v1.NamespaceAll).List(labels.Everything())
 	if err != nil {
 		log.Errorf("list ingress error %v", err)
@@ -336,7 +340,7 @@ func (l *AzureProvider) filterIngress(lb *lbapi.LoadBalancer) ([]*v1beta1.Ingres
 }
 
 // filterFinalizerIngress filter finalizer ingress
-func (l *AzureProvider) filterFinalizerIngress(ingresses []*v1beta1.Ingress) *v1beta1.Ingress {
+func (l *Provider) filterFinalizerIngress(ingresses []*v1beta1.Ingress) *v1beta1.Ingress {
 	for _, ing := range ingresses {
 		if len(ing.Finalizers) != 0 {
 			return ing
@@ -347,7 +351,7 @@ func (l *AzureProvider) filterFinalizerIngress(ingresses []*v1beta1.Ingress) *v1
 }
 
 // updateIngress update ingress in azure app gateway
-func (l *AzureProvider) updateIngress(ingress []*v1beta1.Ingress, lb *lbapi.LoadBalancer, deleteIngress *v1beta1.Ingress) error {
+func (l *Provider) updateIngress(ingress []*v1beta1.Ingress, lb *lbapi.LoadBalancer, deleteIngress *v1beta1.Ingress) error {
 	log.Info("updating ingress")
 	c, err := client.NewClient(&l.storeLister)
 	if err != nil {
@@ -469,7 +473,7 @@ func (l *AzureProvider) updateIngress(ingress []*v1beta1.Ingress, lb *lbapi.Load
 }
 
 // get a valid azure load balancer
-func (l *AzureProvider) ensureAzureLoadbalancer(c *client.Client, lb *lbapi.LoadBalancer) (*network.LoadBalancer, error) {
+func (l *Provider) ensureAzureLoadbalancer(c *client.Client, lb *lbapi.LoadBalancer) (*network.LoadBalancer, error) {
 	azureSpec := lb.Spec.Providers.Azure
 	azlb, err := getAzureLoadbalancer(c, azureSpec.ResourceGroupName, azureSpec.Name)
 	if err != nil {
@@ -491,7 +495,7 @@ func (l *AzureProvider) ensureAzureLoadbalancer(c *client.Client, lb *lbapi.Load
 	return azlb, nil
 }
 
-func (l *AzureProvider) pathLoadBalancerName(lb *lbapi.LoadBalancer, name string) error {
+func (l *Provider) pathLoadBalancerName(lb *lbapi.LoadBalancer, name string) error {
 	lb.Spec.Providers.Azure.Name = name
 	l.setCacheAzureLoadbalancer(lb.Spec.Providers.Azure)
 	patch := fmt.Sprintf(`{"spec":{"providers":{"azure":{"name":"%s"}}}}`, name)
@@ -503,7 +507,7 @@ func (l *AzureProvider) pathLoadBalancerName(lb *lbapi.LoadBalancer, name string
 	return nil
 }
 
-func (l *AzureProvider) getFinalizersPatch(lb *lbapi.LoadBalancer) string {
+func (l *Provider) getFinalizersPatch(lb *lbapi.LoadBalancer) string {
 	if lb == nil {
 		return ""
 	}
@@ -519,11 +523,11 @@ func (l *AzureProvider) getFinalizersPatch(lb *lbapi.LoadBalancer) string {
 	return fmt.Sprintf(`"metadata":{"finalizers":[%s]}`, strings.Join(remainFinalizes, ","))
 }
 
-func (l *AzureProvider) getNilAzureStatus() string {
+func (l *Provider) getNilAzureStatus() string {
 	return `"status":{"ProvidersStatuses":{"azure":{}}}`
 }
 
-func (l *AzureProvider) patachFinalizersAndStatus(lb *lbapi.LoadBalancer, deleteLB bool) error {
+func (l *Provider) patachFinalizersAndStatus(lb *lbapi.LoadBalancer, deleteLB bool) error {
 	patchs := make([]string, 0, 2)
 	finalizers := l.getFinalizersPatch(lb)
 	if len(finalizers) != 0 {
@@ -552,7 +556,7 @@ func (l *AzureProvider) patachFinalizersAndStatus(lb *lbapi.LoadBalancer, delete
 	return nil
 }
 
-func (l *AzureProvider) getIngressFinalizerPatch(ingress *v1beta1.Ingress) string {
+func (l *Provider) getIngressFinalizerPatch(ingress *v1beta1.Ingress) string {
 	remainFinalizes := make([]string, 0, len(ingress.Finalizers))
 	for i := range ingress.Finalizers {
 		if ingress.Finalizers[i] != ingressFinalizer {
@@ -573,7 +577,7 @@ func getAnnotationPatch(lb *lbapi.LoadBalancer) string {
 	return fmt.Sprintf(`{"metadata":{"annotations":{%s}}}`, strings.Join(remain, ","))
 }
 
-func (l *AzureProvider) patchLBAnnotations(lb *lbapi.LoadBalancer, rStatus, rMsg map[string]string) error {
+func (l *Provider) patchLBAnnotations(lb *lbapi.LoadBalancer, rStatus, rMsg map[string]string) error {
 	if rStatus != nil {
 		mjson, _ := json.Marshal(rStatus)
 		lb.Annotations[RuleStatus] = string(mjson)
@@ -591,7 +595,7 @@ func (l *AzureProvider) patchLBAnnotations(lb *lbapi.LoadBalancer, rStatus, rMsg
 }
 
 // patch load balancer azure status
-func (l *AzureProvider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, phase lbapi.AzureProviderPhase, result error) error {
+func (l *Provider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, phase lbapi.AzureProviderPhase, result error) error {
 	var reason, message string
 	var serviceError *client.ServiceError
 	switch t := result.(type) {
@@ -640,7 +644,7 @@ func (l *AzureProvider) patchLoadBalancerAzureStatus(lb *lbapi.LoadBalancer, pha
 }
 
 // clean up azure lb info and make oldAzureProvider nil
-func (l *AzureProvider) cleanupAzureLB(lb *lbapi.LoadBalancer, deleteLB bool) error {
+func (l *Provider) cleanupAzureLB(lb *lbapi.LoadBalancer, deleteLB bool) error {
 	log.Info("start clean up ")
 	if l.cleanAzure {
 		log.Info("azure loadbalancer is already clean...")
@@ -709,7 +713,7 @@ func (l *AzureProvider) cleanupAzureLB(lb *lbapi.LoadBalancer, deleteLB bool) er
 }
 
 // updateAzureAppGateway update the azure app gateway
-func (l *AzureProvider) updateAzureAppGateway(lb *lbapi.LoadBalancer) error {
+func (l *Provider) updateAzureAppGateway(lb *lbapi.LoadBalancer) error {
 	c, err := client.NewClient(&l.storeLister)
 	if err != nil {
 		log.Errorf("init client error %v", err)
@@ -768,7 +772,7 @@ func (l *AzureProvider) updateAzureAppGateway(lb *lbapi.LoadBalancer) error {
 }
 
 // deleteAzureAppGateway delete the azure app gateway
-func (l *AzureProvider) deleteAzureAppGateway(lb *lbapi.LoadBalancer) error {
+func (l *Provider) deleteAzureAppGateway(lb *lbapi.LoadBalancer) error {
 	c, err := client.NewClient(&l.storeLister)
 	if err != nil {
 		log.Errorf("init client error %v", err)
@@ -832,7 +836,7 @@ func (l *AzureProvider) deleteAzureAppGateway(lb *lbapi.LoadBalancer) error {
 }
 
 // addAzureAppGateway add the azure app gateway
-func (l *AzureProvider) addAzureAppGateway(lb *lbapi.LoadBalancer, nodeip []network.ApplicationGatewayBackendAddress, update bool) error {
+func (l *Provider) addAzureAppGateway(lb *lbapi.LoadBalancer, nodeip []network.ApplicationGatewayBackendAddress, update bool) error {
 	c, err := client.NewClient(&l.storeLister)
 	if err != nil {
 		log.Errorf("init client error %v", err)
