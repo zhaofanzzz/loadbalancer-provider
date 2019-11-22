@@ -27,6 +27,8 @@ import (
 	"github.com/caicloud/loadbalancer-provider/providers/azure/client"
 )
 
+const trueString = "true"
+
 // Provider azure lb provider
 type Provider struct {
 	storeLister           core.StoreLister
@@ -96,15 +98,6 @@ func (l *Provider) setCacheNodes(nodes []string) {
 	l.nodes = nodes
 }
 
-func hasAzureFinalizer(lb *lbapi.LoadBalancer) bool {
-	for _, v := range lb.Finalizers {
-		if v == azureFinalizer {
-			return true
-		}
-	}
-	return false
-}
-
 // OnUpdate update loadbalancer
 func (l *Provider) OnUpdate(lb *lbapi.LoadBalancer) error {
 
@@ -126,12 +119,12 @@ func (l *Provider) OnUpdate(lb *lbapi.LoadBalancer) error {
 	if err != nil {
 		return err
 	}
-	if len(ing) != l.ingressesNum && lb.Annotations[AppGateway] == "true" {
+	if len(ing) != l.ingressesNum && lb.Annotations[AppGateway] == trueString {
 		if err := l.updateIngress(ing, nlb, nil); err != nil {
 			return err
 		}
 	}
-	if lb.Annotations[AppGateway] == "true" {
+	if lb.Annotations[AppGateway] == trueString {
 		fing := l.filterFinalizerIngress(ing)
 		if fing != nil {
 			if err := l.updateIngress(ing, nlb, fing); err != nil {
@@ -797,7 +790,7 @@ func (l *Provider) deleteAzureAppGateway(lb *lbapi.LoadBalancer) error {
 		err = deleteAppGatewayBackendPool(c, l.oldResourceGroup, l.oldAppGateway, lb.Name, lb.Annotations[RuleStatus])
 	}
 	if err != nil {
-		lb.Annotations[AppGateway] = "true"
+		lb.Annotations[AppGateway] = trueString
 		lb.Annotations[AppGatewayName] = l.oldAppGateway
 		lb.Annotations[ResourceGroup] = l.oldResourceGroup
 		lb.Annotations[BackendpoolStatus] = StatusError
@@ -845,7 +838,7 @@ func (l *Provider) addAzureAppGateway(lb *lbapi.LoadBalancer, nodeip []network.A
 
 	if update {
 		lb.Annotations[BackendpoolStatus] = StatusUpdating
-		lb.Annotations[AppGateway] = "true"
+		lb.Annotations[AppGateway] = trueString
 		if err := l.patchLBAnnotations(lb, nil, nil); err != nil {
 			return err
 		}
